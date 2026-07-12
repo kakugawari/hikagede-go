@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>ひかげでゴー! 〜真夏の帰り道〜</title>
+
+<!-- ===== PWA設定 ===== -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#5c94fc">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<!-- iPhone(ホーム画面追加でフルスクリーン起動) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ひかげでゴー!">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script>
+  // Service Workerを登録(オフライン対応)
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').catch(e=>console.log('SW登録失敗', e));
+    });
+  }
+</script>
+<style>
+  /* ===== 全体レイアウト ===== */
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#5c94fc; font-family:'Hiragino Maru Gothic ProN','BIZ UDGothic','Yu Gothic',sans-serif; touch-action:none; }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  canvas { display:block; width:100%; height:100%; }
+
+  /* ===== HUD(体温ゲージ・進行度) ===== */
+  #hud { position:fixed; top:0; left:0; right:0; padding:10px 12px 0; pointer-events:none; z-index:10; display:none; }
+  .gaugeRow { display:flex; align-items:center; gap:8px; max-width:560px; margin:0 auto; }
+  .gaugeLabel { color:#fff; font-size:13px; font-weight:bold; text-shadow:0 1px 3px rgba(0,0,0,.5); white-space:nowrap; }
+  #heatOuter { flex:1; height:20px; background:rgba(255,255,255,.9); border-radius:12px; border:3px solid #333; overflow:hidden; box-shadow:0 3px 0 rgba(0,0,0,.25); position:relative; }
+  #heatFill { height:100%; width:0%; border-radius:8px; background:linear-gradient(90deg,#5ec8e8 0%,#ffd93d 55%,#ff8c42 75%,#ff4757 100%); background-size:400px 100%; transition:width .15s linear; }
+  #heatOuter.danger { animation:blinkDanger .4s infinite alternate; }
+  @keyframes blinkDanger { from{box-shadow:0 0 4px 2px rgba(255,71,87,.5);} to{box-shadow:0 0 12px 5px rgba(255,71,87,.95);} }
+  #progRow { max-width:560px; margin:6px auto 0; display:flex; align-items:center; gap:6px; }
+  #progOuter { flex:1; height:8px; background:rgba(0,0,0,.28); border-radius:6px; overflow:hidden; }
+  #progFill { height:100%; width:0%; background:#fff; border-radius:6px; }
+  .progIcon { font-size:16px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+  #shirtBadge { display:none; position:fixed; top:64px; left:50%; transform:translateX(-50%); background:rgba(120,200,255,.95); color:#0a3a5a; font-weight:bold; font-size:13px; padding:4px 14px; border-radius:20px; border:2px solid #2a6a9a; z-index:10; }
+
+  /* ===== タッチ操作ボタン ===== */
+  #controls { position:fixed; bottom:0; left:0; right:0; display:none; justify-content:space-between; padding:0 14px calc(14px + env(safe-area-inset-bottom)); z-index:10; }
+  .padGroup { display:flex; gap:12px; }
+  .btn { width:74px; height:74px; border-radius:50%; background:rgba(255,255,255,.3); border:3px solid rgba(255,255,255,.75); color:#fff; font-size:30px; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px); text-shadow:0 1px 3px rgba(0,0,0,.4); }
+  .btn:active, .btn.on { background:rgba(255,255,255,.55); transform:scale(.95); }
+  #btnJump { width:86px; height:86px; font-size:17px; font-weight:bold; background:rgba(255,220,100,.45); border-color:rgba(255,235,160,.9); }
+
+  /* ===== 画面(タイトル・結果) ===== */
+  .screen { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:20; text-align:center; padding:20px; }
+  /* シンプルなタイトル画面 */
+  #titleScreen { background:linear-gradient(180deg,#5c94fc 0%,#8fc4ff 70%,#7ec860 70.5%,#5cb648 100%); }
+  #titleScreen h1 { font-size:min(12vw,64px); color:#fff; text-shadow:0 5px 0 #e8722a, 0 9px 0 rgba(0,0,0,.2); letter-spacing:.04em; margin-bottom:10px; }
+  #titleScreen .sub { font-size:min(4.5vw,19px); color:#fff; font-weight:bold; text-shadow:0 2px 0 rgba(0,0,0,.25); margin-bottom:34px; }
+  .bigBtn { font-family:inherit; font-size:min(5.5vw,24px); font-weight:bold; color:#fff; background:linear-gradient(180deg,#ff8c42,#f4652f); border:3px solid #fff; border-radius:40px; padding:14px 56px; box-shadow:0 6px 0 #c74a1a, 0 10px 16px rgba(0,0,0,.25); cursor:pointer; }
+  .bigBtn:active { transform:translateY(5px); box-shadow:0 1px 0 #c74a1a; }
+  .hint { margin-top:26px; font-size:min(3.6vw,14px); color:rgba(255,255,255,.95); font-weight:bold; text-shadow:0 1px 0 rgba(0,0,0,.3); }
+  #resultScreen { display:none; background:rgba(10,25,45,.82); backdrop-filter:blur(3px); }
+  #resultCard { background:#fffdf5; border-radius:22px; border:4px solid #333; padding:26px 30px; max-width:420px; width:90%; box-shadow:0 8px 0 rgba(0,0,0,.3); }
+  #resultTitle { font-size:min(8vw,36px); font-weight:bold; margin-bottom:10px; }
+  #resultTitle.clear { color:#1a9bd7; }
+  #resultTitle.over { color:#ff4757; }
+  #resultEmoji { font-size:58px; margin-bottom:8px; }
+  #resultDetail { font-size:15px; color:#555; line-height:2; margin-bottom:20px; }
+  #resultDetail b { color:#e8722a; font-size:18px; }
+  /* コイン表示 */
+  #coinHud { display:none; position:fixed; top:12px; right:14px; z-index:10; background:rgba(255,255,255,.92); border:3px solid #e0a020; border-radius:20px; padding:3px 12px 3px 8px; font-weight:bold; color:#a06a10; font-size:15px; box-shadow:0 2px 0 rgba(0,0,0,.15); }
+  /* ショップ画面 */
+  #shopScreen { display:none; background:linear-gradient(180deg,#3a5a8a 0%,#5c94fc 100%); }
+  #shopCard { background:#fffdf5; border-radius:22px; border:4px solid #333; padding:22px 22px 26px; max-width:440px; width:92%; box-shadow:0 8px 0 rgba(0,0,0,.3); }
+  #shopCard h2 { color:#e8722a; font-size:min(6.5vw,28px); margin-bottom:4px; }
+  #shopCoin { font-weight:bold; color:#a06a10; font-size:16px; margin-bottom:14px; }
+  .shopItem { display:flex; align-items:center; gap:12px; background:#fff7e6; border:2px solid #e8c88a; border-radius:14px; padding:10px 12px; margin-bottom:10px; text-align:left; }
+  .shopItem .ico { font-size:30px; width:38px; text-align:center; flex-shrink:0; }
+  .shopItem .info { flex:1; min-width:0; }
+  .shopItem .nm { font-weight:bold; color:#444; font-size:15px; }
+  .shopItem .lv { font-size:12px; color:#888; }
+  .shopItem .dots { letter-spacing:2px; color:#f4a030; }
+  .buyBtn { font-family:inherit; font-weight:bold; color:#fff; background:#f4a030; border:none; border-radius:20px; padding:8px 14px; font-size:14px; white-space:nowrap; box-shadow:0 3px 0 #c47a10; cursor:pointer; }
+  .buyBtn:active { transform:translateY(3px); box-shadow:0 0 0 #c47a10; }
+  .buyBtn.max { background:#9ac26a; box-shadow:0 3px 0 #6a9a3a; }
+  .buyBtn:disabled { background:#ccc; box-shadow:0 3px 0 #999; opacity:.7; }
+  #shopGo { margin-top:8px; }
+  ruby rt { font-size:.5em; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv"></canvas></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="gaugeRow">
+    <span class="gaugeLabel" id="lvBadge">Lv.1</span>
+    <span class="gaugeLabel">🌡️<ruby>体温<rt>たいおん</rt></ruby></span>
+    <div id="heatOuter"><div id="heatFill"></div></div>
+  </div>
+  <div id="progRow">
+    <span class="progIcon">🏃</span>
+    <div id="progOuter"><div id="progFill"></div></div>
+    <span class="progIcon">🍧</span>
+  </div>
+</div>
+<div id="shirtBadge">👕 <ruby>涼感<rt>りょうかん</rt></ruby>シャツ <span id="shirtTime"></span></div>
+<div id="coinHud">🪙 <span id="coinNum">0</span></div>
+
+<!-- ショップ画面 -->
+<div class="screen" id="shopScreen">
+  <div id="shopCard">
+    <h2>🛒 エイリアンショップ</h2>
+    <div id="shopCoin">もっているコイン 🪙 <span id="shopCoinNum">0</span></div>
+    <div id="shopList"></div>
+    <button class="bigBtn" id="shopGo">つぎのレベルへ ▶</button>
+  </div>
+</div>
+
+<!-- タッチ操作 -->
+<div id="controls">
+  <div class="padGroup">
+    <div class="btn" id="btnL">◀</div>
+    <div class="btn" id="btnR">▶</div>
+  </div>
+  <div class="btn" id="btnJump">ジャンプ</div>
+</div>
+
+<!-- タイトル画面(シンプル) -->
+<div class="screen" id="titleScreen">
+  <h1>ひかげでゴー!</h1>
+  <div class="sub">☀️ <ruby>日陰<rt>ひかげ</rt></ruby>をすすんで かき<ruby>氷屋<rt>ごおりや</rt></ruby>さんへ! 🍧</div>
+  <button class="bigBtn" id="startBtn">スタート!</button>
+  <div class="hint">◀ ▶ うごく ／ ジャンプでとぶ</div>
+</div>
+
+<!-- 結果画面 -->
+<div class="screen" id="resultScreen">
+  <div id="resultCard">
+    <div id="resultEmoji"></div>
+    <div id="resultTitle"></div>
+    <div id="resultDetail"></div>
+    <button class="bigBtn" id="nextBtn" style="display:none">つぎのレベルへ ▶</button>
+    <button class="bigBtn" id="retryBtn">もういちど</button>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   ひかげでゴー! 〜真夏の帰り道〜
+   マリオ風の明るい横スクロール:太い輪郭線・まるい丘・
+   浮きブロック足場(足場の下は日陰!)
+   キャラクター:こどもの原画そっくりのらくがきエイリアン
+========================================================= */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+// ---- 画面サイズ調整(論理解像度は高さ540基準) ----
+let W = 960, H = 540;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const vw = window.innerWidth, vh = window.innerHeight;
+  H = 540; W = Math.max(720, Math.round(vw / vh * H));
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', resize); resize();
+
+// ---- 定数 ----
+const GROUND_Y = 460;              // 地面の高さ
+const GOAL_X   = 6400;             // ゴール位置
+const DEPTH    = 22;               // 道の奥行き(立体感)
+const SKEW     = 16;               // 奥行きの斜めずれ
+const GRAV     = 2600;             // 重力
+const MOVE_SP  = 315;              // 移動速度
+const JUMP_V   = -860;             // ジャンプ初速
+const HEAT_SUN   = 7.5;            // 日向での体温上昇 /秒
+const HEAT_SHADE = -4.5;           // 日陰での体温回復 /秒
+const HEAT_FAN   = -14;            // 扇風機の風での回復 /秒
+const HEAT_MAX   = 100;
+
+// ---- ステージデータ ----
+// 木・ビル・パラソル・扇風機(日陰を作る)
+const trees = [ {x:520,s:1}, {x:1250,s:1.2}, {x:2080,s:.9}, {x:2900,s:1.1},
+                {x:3650,s:1}, {x:4300,s:1.3}, {x:5150,s:1}, {x:5850,s:1.1} ];
+const builds = [ {x:900,w:150,h:250,c:'#f0a860'}, {x:1750,w:180,h:300,c:'#7db8e8'},
+                 {x:3250,w:160,h:270,c:'#f08a8a'}, {x:4750,w:200,h:320,c:'#8fca7a'} ];
+const parasols = [ {x:1520}, {x:2550}, {x:4050}, {x:5500} ];
+const fans = [ {x:2350}, {x:5050} ];
+// 動く雲(影も動く!レベルが上がると速くなる)
+const clouds = [ {x0:700, x:700, y:90, s:1.1, v0:26, v:26},
+                 {x0:2600, x:2600, y:70, s:1.4, v0:20, v:20},
+                 {x0:4600, x:4600, y:100, s:1.0, v0:32, v:32} ];
+// 熱々マンホール(踏むと体温急上昇。レベルが上がると増える!)
+const baseManholes  = [1120, 1980, 3100, 3520, 4550, 5350, 6050];
+const extraManholes = [980, 1660, 2760, 3350, 3900, 4880, 5680, 6180];
+let manholes = [];
+function initManholes(){
+  const n = Math.min(extraManholes.length, (level-1)*2);
+  manholes = baseManholes.concat(extraManholes.slice(0, n)).map(x=>({x}));
+}
+// 落とし穴(落ちたらゲームオーバー!レベルが上がると増える)
+const basePits  = [ {x:1370,w:110}, {x:2140,w:110}, {x:3672,w:98}, {x:4130,w:120} ];
+const extraPits = [ {x:760,w:100}, {x:2600,w:100}, {x:6240,w:110}, {x:2950,w:90} ];
+let pits = [];
+function initPits(){
+  const n = Math.min(extraPits.length, level-1);
+  pits = basePits.concat(extraPits.slice(0, n));
+}
+// 足元が穴の上かどうか(ふちには立てる)
+function overPit(px){
+  for(const p of pits){ if(px > p.x+6 && px < p.x+p.w-6) return true; }
+  return false;
+}
+// ---- くねくね地形 ----
+// なだらかな丘と谷がつづく道。スタートとゴール付近はたいら
+function terrainH(x){
+  const h = Math.sin(x*0.0035)*24 + Math.sin(x*0.008+1.7)*14;
+  const fadeIn  = Math.min(1, Math.max(0, (x-260)/320));   // スタートはたいら
+  const fadeOut = Math.min(1, Math.max(0, (6180-x)/320));  // ゴール前もたいら
+  return h * fadeIn * fadeOut;
+}
+// x地点の地面の高さ
+function gy(x){ return GROUND_Y - terrainH(x); }
+
+// 浮きブロック足場(マリオ風!地形からの高さdyで配置。下は日陰になる)
+const plats = [
+  {x:640,  dy:110, w:150},
+  {x:1450, dy:118, w:130},
+  {x:2230, dy:105, w:150},
+  {x:3020, dy:118, w:130},
+  {x:3760, dy:110, w:150},
+  {x:4480, dy:122, w:130},
+  {x:5230, dy:110, w:150},
+  {x:5950, dy:118, w:130},
+];
+for(const p of plats){ p.y = gy(p.x + p.w/2) - p.dy; }
+// アイテム type: ice=アイス juice=メロンジュース shirt=涼感シャツ
+let items = [];
+function initItems(){
+  // off = その場所の地面からの高さ
+  items = [
+    {x:715,  off:172, t:'juice'},   // 足場の上
+    {x:1515, off:180, t:'ice'},
+    {x:2450, off:58,  t:'shirt'},
+    {x:3085, off:180, t:'juice'},
+    {x:3835, off:172, t:'ice'},
+    {x:4545, off:184, t:'juice'},
+    {x:4900, off:58,  t:'shirt'},
+    {x:5305, off:172, t:'ice'},
+    {x:6015, off:180, t:'juice'},
+  ].map(o=>({x:o.x, t:o.t, y:gy(o.x)-o.off, got:false, bob:Math.random()*6.28}));
+}
+
+// ---- プレイヤー ----
+const player = {};
+function initPlayer(){
+  Object.assign(player, {
+    x:120, y:GROUND_Y, vx:0, vy:0, onGround:true,
+    heat:20, shirt:0, hurt:0, face:1, walkT:0, fell:false
+  });
+}
+
+// ---- ゲーム状態 ----
+let state = 'title';   // title / play / melt / clear / over / shop
+let level = 1;         // 現在のレベル(クリアで+1)
+let coins = 0;         // もっているコイン
+// エイリアンの強化レベル(0〜3)
+const upg = { body:0, speed:0, cool:0 };
+// 強化の定義
+const UPGRADES = [
+  { key:'body',  ico:'💪', nm:'つよいからだ',   desc:'あつさに つよくなる',     cost:[3,6,10] },
+  { key:'speed', ico:'👟', nm:'すばやいあし',   desc:'はやく はしれる',         cost:[3,6,10] },
+  { key:'cool',  ico:'❄️', nm:'ひんやりボディ', desc:'日陰の かいふくアップ',   cost:[3,6,10] },
+];
+let camX = 0, timeT = 0, gotCount = 0, lastTs = 0, meltT = 0;
+let popups = [];
+let particles = [];
+
+// ---- 入力 ----
+const input = { l:false, r:false, jump:false };
+function bindHold(el, key){
+  const on = e=>{ e.preventDefault(); input[key]=true; el.classList.add('on'); };
+  const off= e=>{ e.preventDefault(); input[key]=false; el.classList.remove('on'); };
+  el.addEventListener('touchstart',on,{passive:false});
+  el.addEventListener('touchend',off); el.addEventListener('touchcancel',off);
+  el.addEventListener('mousedown',on); el.addEventListener('mouseup',off); el.addEventListener('mouseleave',off);
+}
+bindHold(document.getElementById('btnL'),'l');
+bindHold(document.getElementById('btnR'),'r');
+bindHold(document.getElementById('btnJump'),'jump');
+window.addEventListener('keydown',e=>{
+  if(e.code==='ArrowLeft')  input.l=true;
+  if(e.code==='ArrowRight') input.r=true;
+  if(e.code==='Space'||e.code==='ArrowUp') input.jump=true;
+});
+window.addEventListener('keyup',e=>{
+  if(e.code==='ArrowLeft')  input.l=false;
+  if(e.code==='ArrowRight') input.r=false;
+  if(e.code==='Space'||e.code==='ArrowUp') input.jump=false;
+});
+
+/* ---- らくがき線ヘルパー(線がプルプル揺れる手描きアニメ風) ---- */
+let wobSeed = 0, wobAcc = 0;
+function hash(n){ const s = Math.sin(n)*43758.5453; return s - Math.floor(s); }
+function wpt(x, y, amp){
+  const h1 = hash(x*12.9898 + y*78.233 + wobSeed*311.7);
+  const h2 = hash(x*26.651  + y*14.317 + wobSeed*157.31);
+  return [x + (h1-.5)*2*amp, y + (h2-.5)*2*amp];
+}
+function wEllipse(cx, cy, rx, ry, rot, amp){
+  const N = 16, cos = Math.cos(rot||0), sin = Math.sin(rot||0);
+  ctx.beginPath();
+  for(let i=0; i<=N; i++){
+    const a = i/N*6.2832;
+    const ex = Math.cos(a)*rx, ey = Math.sin(a)*ry;
+    const [qx,qy] = wpt(cx + ex*cos - ey*sin, cy + ex*sin + ey*cos, amp);
+    i ? ctx.lineTo(qx,qy) : ctx.moveTo(qx,qy);
+  }
+  ctx.closePath();
+}
+function wLine(x1,y1,x2,y2,amp){
+  const N = 5;
+  ctx.beginPath();
+  for(let i=0; i<=N; i++){
+    const t = i/N;
+    const [qx,qy] = wpt(x1+(x2-x1)*t, y1+(y2-y1)*t, amp);
+    i ? ctx.lineTo(qx,qy) : ctx.moveTo(qx,qy);
+  }
+}
+
+// ---- 日陰判定 ----
+// 影の矩形リスト(太陽は右上 → 影は左下に伸びる)
+function getShadeRects(){
+  const rects = [];
+  for(const t of trees){
+    const r = 78*t.s;
+    rects.push({x:t.x - r - 55*t.s, w:r*2 + 40*t.s});
+  }
+  for(const b of builds){
+    rects.push({x:b.x - b.h*0.55, w:b.h*0.55 + b.w*0.6});
+  }
+  for(const p of parasols){
+    rects.push({x:p.x - 105, w:170});
+  }
+  for(const p of plats){
+    rects.push({x:p.x - 42, w:p.w + 30});     // 浮き足場の下も日陰!
+  }
+  for(const c of clouds){
+    const r = 95*c.s;
+    rects.push({x:c.x - r - 60, w:r*2, cloud:true});
+  }
+  // レベルが上がるほど日陰がせまくなる(最小60%)
+  const k = Math.max(0.6, 1 - 0.07*(level-1));
+  for(const r of rects){
+    const w0 = r.w;
+    r.w = w0*k;
+    r.x += w0*(1-k)/2;
+  }
+  return rects;
+}
+function inShade(px){
+  for(const r of getShadeRects()){
+    if(px > r.x && px < r.x + r.w) return true;
+  }
+  return false;
+}
+function nearFan(px){
+  for(const f of fans){ if(Math.abs(px - f.x) < 110) return f; }
+  return null;
+}
+
+// ---- ポップアップ文字 ----
+function popup(x,y,text,color){
+  popups.push({x,y,text,color,t:0});
+}
+
+// ---- 更新 ----
+function update(dt){
+  timeT += dt;
+
+  // らくがき線のゆらぎを更新
+  wobAcc += dt;
+  if(wobAcc > 0.13){ wobAcc = 0; wobSeed = (wobSeed+1)%997; }
+
+  // 雲の移動
+  for(const c of clouds){
+    c.x -= c.v*dt;
+    if(c.x < -300) c.x = GOAL_X + 400;
+  }
+
+  // とけるアニメーション中
+  if(state==='melt'){
+    meltT += dt;
+    if(meltT > 1.7){ state='over'; showResult(false); }
+    return;
+  }
+
+  if(state!=='play') return;
+
+  // --- 移動(穴に落ちてる間は動けない) ---
+  const inPitFall = player.y > gy(player.x)+2;
+  const moveSp = MOVE_SP * (1 + 0.12*upg.speed);   // 👟すばやいあし
+  player.vx = inPitFall ? 0 : (input.r?moveSp:0) - (input.l?moveSp:0);
+  if(player.vx!==0) player.face = Math.sign(player.vx);
+  if(input.jump && player.onGround){
+    player.vy = JUMP_V * (1 + 0.04*upg.speed); player.onGround = false;
+  }
+  player.x += player.vx*dt;
+  player.x = Math.max(40, Math.min(GOAL_X+120, player.x));
+
+  // --- 落下と着地(くねくね地形+浮き足場。落とし穴の上はすり抜ける!) ---
+  const wasGround = player.onGround;
+  player.vy += GRAV*dt;
+  const prevY = player.y;
+  player.y += player.vy*dt;
+  player.onGround = false;
+  const g = gy(player.x);
+  if(player.vy >= 0 && player.y >= g && prevY <= g+22 && !overPit(player.x)){
+    player.y = g; player.vy = 0; player.onGround = true;
+  } else if(player.vy >= 0 && player.y < g+2){
+    // 足場には上からだけ乗れる(マリオ式のすり抜け足場)
+    for(const p of plats){
+      if(player.x > p.x-8 && player.x < p.x+p.w+8 && prevY <= p.y+0.5 && player.y >= p.y){
+        player.y = p.y; player.vy = 0; player.onGround = true;
+        break;
+      }
+    }
+  }
+  // 下り坂で足がはなれないように地面に吸いつく
+  if(!player.onGround && wasGround && player.vy >= 0 && player.y < g && g - player.y < 26 && !overPit(player.x)){
+    player.y = g; player.vy = 0; player.onGround = true;
+  }
+  if(player.vx!==0 && player.onGround) player.walkT += dt*10;
+
+  // --- 落とし穴に落ちた! ---
+  if(player.y > g+30){
+    if(!player.fell){
+      player.fell = true;
+      popup(player.x, g-30, 'わ〜っ!!', '#e8722a');
+    }
+    if(player.y > g+280){ endGame(false, 'fall'); return; }
+  }
+
+  // --- 体温(レベルが上がるほど日差しが強く、日陰の回復も弱くなる) ---
+  const shaded = inShade(player.x);
+  const fan = nearFan(player.x);
+  const bodyK  = 1 - 0.15*upg.body;                 // 💪つよいからだ:日差しダメ減
+  const coolK  = 1 + 0.35*upg.cool;                 // ❄️ひんやりボディ:日陰回復増
+  const heatSunLv   = HEAT_SUN   * (1 + 0.25*(level-1)) * bodyK;
+  const heatShadeLv = HEAT_SHADE * Math.max(0.55, 1 - 0.1*(level-1)) * coolK;
+  let dHeat;
+  if(fan){ dHeat = HEAT_FAN * coolK; }
+  else if(shaded){ dHeat = heatShadeLv; }
+  else { dHeat = heatSunLv * (player.shirt>0 ? 0.5 : 1); }
+  player.heat = Math.max(0, Math.min(HEAT_MAX, player.heat + dHeat*dt));
+
+  // シャツ効果タイマー
+  if(player.shirt>0){
+    player.shirt -= dt;
+    document.getElementById('shirtBadge').style.display='block';
+    document.getElementById('shirtTime').textContent = Math.ceil(player.shirt)+'秒';
+    if(player.shirt<=0) document.getElementById('shirtBadge').style.display='none';
+  }
+  if(player.hurt>0) player.hurt -= dt;
+
+  // 扇風機の風パーティクル
+  if(fan && Math.random()<0.5){
+    particles.push({x:fan.x+(Math.random()-.5)*60, y:gy(fan.x)-30-Math.random()*80,
+      vx:(player.x>fan.x?1:-1)*(60+Math.random()*60), vy:-20-Math.random()*30, t:0, type:'wind'});
+  }
+  // 日陰にいると涼しげキラキラ
+  if((shaded||fan) && Math.random()<0.12){
+    particles.push({x:player.x+(Math.random()-.5)*30, y:player.y-45-Math.random()*20,
+      vx:0, vy:-25, t:0, type:'cool'});
+  }
+
+  // --- 熱々マンホール(地面にいるときだけ) ---
+  if(player.onGround && Math.abs(player.y - gy(player.x)) < 3 && player.hurt<=0){
+    for(const m of manholes){
+      if(Math.abs(player.x - m.x) < 30){
+        player.heat = Math.min(HEAT_MAX, player.heat + 15);
+        player.hurt = 1.0;
+        player.vy = -500; player.onGround = false;   // アチチ!と跳ねる
+        popup(player.x, player.y-70, 'アチチ!!', '#ff4757');
+        break;
+      }
+    }
+  }
+
+  // --- アイテム取得 ---
+  for(const it of items){
+    if(it.got) continue;
+    it.bob += dt*3;
+    if(Math.abs(player.x-it.x)<32 && Math.abs((player.y-25)-it.y)<48){
+      it.got = true; gotCount++;
+      if(it.t==='ice'){   player.heat=Math.max(0,player.heat-35); popup(it.x,it.y-28,'アイスうま! -35','#1a9bd7'); }
+      if(it.t==='juice'){ player.heat=Math.max(0,player.heat-20); popup(it.x,it.y-28,'メロンジュース ごくごく! -20','#2e8a3e'); }
+      if(it.t==='shirt'){ player.shirt=15; popup(it.x,it.y-28,'着替えた! 涼しい〜','#3aa0e0'); }
+      for(let i=0;i<10;i++) particles.push({x:it.x,y:it.y,vx:(Math.random()-.5)*160,vy:-Math.random()*180,t:0,type:'spark'});
+    }
+  }
+
+  // --- ゴール & ゲームオーバー ---
+  if(player.x >= GOAL_X){ endGame(true); }
+  if(player.heat >= HEAT_MAX){ endGame(false); }
+
+  // --- カメラ ---
+  camX = Math.max(0, Math.min(player.x - W*0.38, GOAL_X+200 - W));
+
+  // --- HUD ---
+  const pct = player.heat/HEAT_MAX*100;
+  document.getElementById('heatFill').style.width = pct+'%';
+  document.getElementById('heatOuter').classList.toggle('danger', pct>75);
+  document.getElementById('progFill').style.width = (player.x/GOAL_X*100)+'%';
+}
+
+// ---- ゲーム終了 ----
+function endGame(clear, reason){
+  document.getElementById('controls').style.display='none';
+  document.getElementById('shirtBadge').style.display='none';
+  document.getElementById('coinHud').style.display='none';
+  if(clear){
+    // コインをもらえる:クリア基本3枚+アイテム1こ1枚+体温余裕ボーナス
+    lastReward = 3 + gotCount + (player.heat < 40 ? 2 : 0);
+    coins += lastReward;
+    updateCoinHud();
+    state='clear';
+    showResult(true);
+  }else if(reason==='fall'){
+    // 落とし穴に落ちた
+    state='over';
+    showResult(false, 'fall');
+  }else{
+    state='melt'; meltT=0;
+    popup(player.x, player.y-70, 'とけた…', '#e8722a');
+  }
+}
+function showResult(clear, reason){
+  const rs = document.getElementById('resultScreen');
+  const tt = document.getElementById('resultTitle');
+  const em = document.getElementById('resultEmoji');
+  const dt = document.getElementById('resultDetail');
+  document.getElementById('nextBtn').style.display  = clear ? 'inline-block' : 'none';
+  document.getElementById('retryBtn').style.display = clear ? 'none' : 'inline-block';
+  if(clear){
+    em.textContent='🍧';
+    tt.textContent=`レベル${level} クリア!!`;
+    tt.className='clear';
+    dt.innerHTML = `クリアタイム <b>${timeT.toFixed(1)}秒</b><br>コインを <b>🪙${lastReward}</b> もらった!<br>ショップでエイリアンを つよくしよう✨`;
+    document.getElementById('nextBtn').textContent = 'ショップへ 🛒';
+  }else if(reason==='fall'){
+    em.textContent='🕳️';
+    tt.textContent='おっこちた…';
+    tt.className='over';
+    dt.innerHTML = `<ruby>落<rt>お</rt></ruby>とし<ruby>穴<rt>あな</rt></ruby>に落ちちゃった…<br>レベル${level}・進んだ<ruby>距離<rt>きょり</rt></ruby> <b>${Math.round(player.x/GOAL_X*100)}%</b><br>穴はジャンプでとびこえよう!`;
+  }else{
+    em.textContent='🫠';
+    tt.textContent='とけちゃった…';
+    tt.className='over';
+    dt.innerHTML = `<ruby>暑<rt>あつ</rt></ruby>すぎてエイリアンがとけたよ<br>レベル${level}・進んだ<ruby>距離<rt>きょり</rt></ruby> <b>${Math.round(player.x/GOAL_X*100)}%</b><br>日陰でこまめに休もう!`;
+  }
+  setTimeout(()=>{ rs.style.display='flex'; }, clear?300:200);
+}
+
+/* =========================================================
+   描画:マリオ風の明るいポップな世界
+========================================================= */
+function draw(){
+  // ===== 空(パキッとしたゲームの青空) =====
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#5c94fc'); sky.addColorStop(.7,'#8fc4ff'); sky.addColorStop(1,'#c8e6ff');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+
+  // ===== 太陽(輪郭つきのポップな太陽) =====
+  const sunX = W-110, sunY = 88;
+  const glow = ctx.createRadialGradient(sunX,sunY,10,sunX,sunY,180);
+  glow.addColorStop(0,'rgba(255,240,150,.8)'); glow.addColorStop(1,'rgba(255,235,140,0)');
+  ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(sunX,sunY,180,0,7); ctx.fill();
+  // ギザギザ光線
+  ctx.fillStyle='#ffd23f'; ctx.strokeStyle='#f2a03d'; ctx.lineWidth=3; ctx.lineJoin='round';
+  ctx.beginPath();
+  for(let i=0;i<12;i++){
+    const a1=i/12*6.283+timeT*0.1, a2=(i+0.5)/12*6.283+timeT*0.1;
+    ctx.lineTo(sunX+Math.cos(a1)*62, sunY+Math.sin(a1)*62);
+    ctx.lineTo(sunX+Math.cos(a2)*44, sunY+Math.sin(a2)*44);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#ffe066';
+  ctx.beginPath(); ctx.arc(sunX,sunY,40,0,7); ctx.fill(); ctx.stroke();
+
+  // ===== 遠くのまるい丘(うすい緑・視差ゆっくり) =====
+  ctx.save(); ctx.translate(-camX*0.12,0);
+  for(let i=0;i<14;i++){
+    const hx = i*580 + ((i*97)%160);
+    const sx = hx - camX*0.12;
+    if(sx<-400 || sx>W+400) continue;
+    drawHill(hx, GROUND_Y, 150+((i*53)%80), '#a8dd90', '#7ec468');
+  }
+  ctx.restore();
+
+  // ===== 近くのまるい丘(こい緑) =====
+  ctx.save(); ctx.translate(-camX*0.3,0);
+  for(let i=0;i<16;i++){
+    const hx = i*640 + ((i*137)%200) + 240;
+    const sx = hx - camX*0.3;
+    if(sx<-350 || sx>W+350) continue;
+    drawHill(hx, GROUND_Y, 105+((i*71)%55), '#6cc25a', '#3f9a3f');
+  }
+  ctx.restore();
+
+  /* ===== ここからワールド座標 ===== */
+  ctx.save();
+  ctx.translate(-camX,0);
+
+  // --- くねくねの立体的な道(上面のあるリボン状の道) ---
+  {
+    const x0 = camX-40, x1 = camX+W+40, step = 20;
+    // 前面(土の断面)
+    const gg = ctx.createLinearGradient(0, GROUND_Y-60, 0, H);
+    gg.addColorStop(0,'#e8c88e'); gg.addColorStop(1,'#c4a26c');
+    ctx.fillStyle = gg;
+    ctx.beginPath(); ctx.moveTo(x0, H+10);
+    for(let x=x0; x<=x1; x+=step) ctx.lineTo(x, gy(x));
+    ctx.lineTo(x1, H+10); ctx.closePath(); ctx.fill();
+    // 上面(歩く道のおくゆき)
+    ctx.fillStyle='#fbe9bc';
+    ctx.beginPath();
+    for(let x=x0; x<=x1; x+=step){ x===x0 ? ctx.moveTo(x,gy(x)) : ctx.lineTo(x,gy(x)); }
+    for(let x=x1; x>=x0; x-=step){ ctx.lineTo(x+SKEW, gy(x)-DEPTH); }
+    ctx.closePath(); ctx.fill();
+    // 上面のタイル目地(奥へむかう線)
+    ctx.strokeStyle='rgba(190,140,80,.5)'; ctx.lineWidth=2;
+    for(let gx=Math.floor(camX/40)*40; gx<camX+W+80; gx+=40){
+      ctx.beginPath(); ctx.moveTo(gx,gy(gx)); ctx.lineTo(gx+SKEW,gy(gx)-DEPTH); ctx.stroke();
+    }
+    // 奥のフチ
+    ctx.strokeStyle='#c99a5a'; ctx.lineWidth=2.5; ctx.lineJoin='round';
+    ctx.beginPath();
+    for(let x=x0; x<=x1; x+=step){ x===x0 ? ctx.moveTo(x+SKEW,gy(x)-DEPTH) : ctx.lineTo(x+SKEW,gy(x)-DEPTH); }
+    ctx.stroke();
+    // 手前のフチ(道のかど)
+    ctx.strokeStyle='#fff6d8'; ctx.lineWidth=4;
+    ctx.beginPath();
+    for(let x=x0; x<=x1; x+=step){ x===x0 ? ctx.moveTo(x,gy(x)) : ctx.lineTo(x,gy(x)); }
+    ctx.stroke();
+    ctx.strokeStyle='#a37c48'; ctx.lineWidth=2;
+    ctx.beginPath();
+    for(let x=x0; x<=x1; x+=step){ x===x0 ? ctx.moveTo(x,gy(x)+3) : ctx.lineTo(x,gy(x)+3); }
+    ctx.stroke();
+    // 前面のブロック目地
+    ctx.strokeStyle='rgba(160,115,65,.5)'; ctx.lineWidth=2;
+    for(let gx=Math.floor(camX/40)*40; gx<camX+W+40; gx+=40){
+      ctx.beginPath(); ctx.moveTo(gx,gy(gx)+5); ctx.lineTo(gx,H); ctx.stroke();
+    }
+    ctx.beginPath();
+    for(let x=x0; x<=x1; x+=step){ x===x0 ? ctx.moveTo(x,gy(x)+44) : ctx.lineTo(x,gy(x)+44); }
+    ctx.stroke();
+  }
+
+  // --- 落とし穴(道の上面をつらぬく立体的な穴) ---
+  for(const p of pits){
+    const topL = gy(p.x);
+    // 穴の暗やみ(上面から前面まで)
+    const pg = ctx.createLinearGradient(0, topL-DEPTH, 0, topL+120);
+    pg.addColorStop(0,'#5a4530'); pg.addColorStop(1,'#170e07');
+    ctx.fillStyle = pg;
+    ctx.beginPath();
+    ctx.moveTo(p.x, H);
+    ctx.lineTo(p.x, gy(p.x));
+    ctx.lineTo(p.x+SKEW, gy(p.x)-DEPTH);
+    for(let x=p.x; x<=p.x+p.w; x+=10) ctx.lineTo(x+SKEW, gy(x)-DEPTH);
+    ctx.lineTo(p.x+p.w+SKEW, gy(p.x+p.w)-DEPTH);
+    ctx.lineTo(p.x+p.w, gy(p.x+p.w));
+    ctx.lineTo(p.x+p.w, H);
+    ctx.closePath(); ctx.fill();
+    // 穴の奥の内壁(うっすら見えて深さを感じる)
+    ctx.fillStyle='#7a5a38';
+    ctx.beginPath();
+    for(let x=p.x; x<=p.x+p.w; x+=10){ x===p.x ? ctx.moveTo(x+SKEW, gy(x)-DEPTH) : ctx.lineTo(x+SKEW, gy(x)-DEPTH); }
+    for(let x=p.x+p.w; x>=p.x; x-=10){ ctx.lineTo(x+SKEW, gy(x)-DEPTH+14); }
+    ctx.closePath(); ctx.fill();
+    // 左の内壁
+    ctx.fillStyle='rgba(150,115,75,.85)';
+    ctx.beginPath();
+    ctx.moveTo(p.x,gy(p.x)); ctx.lineTo(p.x+SKEW,gy(p.x)-DEPTH);
+    ctx.lineTo(p.x+SKEW,H); ctx.lineTo(p.x,H);
+    ctx.closePath(); ctx.fill();
+    // 手前のふちの線
+    ctx.strokeStyle='#3a2a15'; ctx.lineWidth=3;
+    ctx.beginPath();
+    for(let x=p.x; x<=p.x+p.w; x+=10){ x===p.x ? ctx.moveTo(x,gy(x)) : ctx.lineTo(x,gy(x)); }
+    ctx.stroke();
+  }
+
+  // --- 日陰(地形にそった、ふちがふわっとボケる涼しい帯) ---
+  for(const r of getShadeRects()){
+    const sg = ctx.createLinearGradient(r.x,0,r.x+r.w,0);
+    const a = r.cloud ? .3 : .36;
+    sg.addColorStop(0,'rgba(40,65,105,0)');
+    sg.addColorStop(.13,`rgba(40,65,105,${a})`);
+    sg.addColorStop(.87,`rgba(40,65,105,${a})`);
+    sg.addColorStop(1,'rgba(40,65,105,0)');
+    ctx.fillStyle=sg;
+    ctx.beginPath(); ctx.moveTo(r.x, H);
+    for(let x=r.x; x<=r.x+r.w; x+=22) ctx.lineTo(x, gy(x)-DEPTH-4);
+    ctx.lineTo(r.x+r.w, gy(r.x+r.w)-DEPTH-4);
+    ctx.lineTo(r.x+r.w, H); ctx.closePath(); ctx.fill();
+  }
+
+  // --- 熱々マンホール(地形にそって配置) ---
+  for(const m of manholes){
+    const my = gy(m.x);
+    ctx.fillStyle='#a05530';
+    ctx.beginPath(); ctx.ellipse(m.x, my+8, 32, 10, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle='#4a2210'; ctx.lineWidth=3.5; ctx.stroke();
+    ctx.strokeStyle=`rgba(255,110,50,${0.55+0.35*Math.sin(timeT*4+m.x)})`; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.ellipse(m.x, my+8, 22, 6, 0, 0, 7); ctx.stroke();
+    // ゆらゆら熱気
+    ctx.strokeStyle='rgba(255,160,80,.5)'; ctx.lineWidth=2.5;
+    for(let k=-1;k<=1;k++){
+      ctx.beginPath();
+      for(let yy=0; yy<42; yy+=4){
+        const wx = m.x + k*14 + Math.sin(timeT*6 + yy*0.25 + k)*5;
+        yy===0 ? ctx.moveTo(wx, my-yy) : ctx.lineTo(wx, my-yy);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // --- ビル(パキッとした色+太い輪郭・地形にそって配置) ---
+  for(const b of builds){
+    // 坂の低いほうに合わせて、少し地面にめりこませて浮かないように
+    const baseY = Math.max(gy(b.x), gy(b.x+b.w), gy(b.x+b.w/2)) + 4;
+    const top = baseY - b.h;
+    // 右の側面(太陽側・明るい面で立体感)
+    ctx.strokeStyle='#3a3a4a'; ctx.lineWidth=4; ctx.lineJoin='round';
+    ctx.beginPath();
+    ctx.moveTo(b.x+b.w, top); ctx.lineTo(b.x+b.w+14, top-10);
+    ctx.lineTo(b.x+b.w+14, baseY-10); ctx.lineTo(b.x+b.w, baseY);
+    ctx.closePath();
+    ctx.fillStyle=b.c; ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.35)'; ctx.fill();
+    ctx.stroke();
+    // 前面
+    ctx.fillStyle=b.c; ctx.strokeStyle='#3a3a4a'; ctx.lineWidth=4;
+    ctx.fillRect(b.x, top, b.w, b.h); ctx.strokeRect(b.x, top, b.w, b.h);
+    // 四角い窓
+    ctx.fillStyle='#cfeaff'; ctx.strokeStyle='#3a3a4a'; ctx.lineWidth=2.5;
+    for(let wy=top+24; wy<baseY-52; wy+=48){
+      for(let wx=b.x+24; wx<b.x+b.w-28; wx+=44){
+        ctx.fillRect(wx,wy,26,28); ctx.strokeRect(wx,wy,26,28);
+      }
+    }
+    // 屋上(上面つき)と入口
+    ctx.fillStyle='#8b8b9e';
+    ctx.beginPath();
+    ctx.moveTo(b.x-8, top-14); ctx.lineTo(b.x+6, top-24);
+    ctx.lineTo(b.x+b.w+22, top-24); ctx.lineTo(b.x+b.w+8, top-14);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#3a3a4a'; ctx.lineWidth=3; ctx.stroke();
+    ctx.fillStyle='#5a5a6a'; ctx.fillRect(b.x-8, top-14, b.w+16, 14);
+    ctx.strokeRect(b.x-8, top-14, b.w+16, 14);
+    ctx.fillStyle='#4a3a30';
+    ctx.fillRect(b.x+b.w/2-18, baseY-42, 36, 42);
+    ctx.strokeRect(b.x+b.w/2-18, baseY-42, 36, 42);
+  }
+
+  // --- 街路樹(まるいポップな木・地形にそって配置) ---
+  for(const t of trees){
+    const s=t.s, sway=Math.sin(timeT*1.2+t.x)*4, ty=gy(t.x);
+    // 地面におちる木の影(立体感)
+    ctx.fillStyle='rgba(40,60,90,.18)';
+    ctx.beginPath(); ctx.ellipse(t.x-26*s, ty-2, 62*s, 9, 0, 0, 7); ctx.fill();
+    // 幹
+    ctx.fillStyle='#9a6238'; ctx.strokeStyle='#5a3418'; ctx.lineWidth=4;
+    ctx.fillRect(t.x-9*s, ty-118*s, 18*s, 118*s+6);
+    ctx.strokeRect(t.x-9*s, ty-118*s, 18*s, 118*s+6);
+    // まるい葉っぱ(輪郭つき)
+    const cx=t.x+sway, cy=ty-158*s;
+    ctx.fillStyle='#4bb84f'; ctx.strokeStyle='#2a7a30'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 72*s, 60*s, 0, 0, 7); ctx.fill(); ctx.stroke();
+    // 下側のかげ
+    ctx.fillStyle='#379a3e';
+    ctx.beginPath(); ctx.ellipse(cx-6*s, cy+22*s, 56*s, 30*s, 0, 0, 3.14); ctx.fill();
+    // ハイライトのてんてん(マリオの丘風)
+    ctx.fillStyle='#7fd88f';
+    ctx.beginPath();
+    ctx.arc(cx+20*s, cy-28*s, 9*s, 0, 7);
+    ctx.arc(cx+40*s, cy-12*s, 7*s, 0, 7);
+    ctx.arc(cx+2*s,  cy-38*s, 6*s, 0, 7);
+    ctx.fill();
+  }
+
+  // --- 浮きブロック足場(立体的なブロック!下は日陰) ---
+  for(const p of plats){
+    const PD=13, PS=11;   // 足場の奥行き
+    // 右の側面
+    ctx.fillStyle='#a85a28'; ctx.strokeStyle='#7a3a15'; ctx.lineWidth=3; ctx.lineJoin='round';
+    ctx.beginPath();
+    ctx.moveTo(p.x+p.w, p.y); ctx.lineTo(p.x+p.w+PS, p.y-PD);
+    ctx.lineTo(p.x+p.w+PS, p.y-PD+26); ctx.lineTo(p.x+p.w, p.y+26);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // 上面
+    ctx.fillStyle='#f7c893';
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y); ctx.lineTo(p.x+PS, p.y-PD);
+    ctx.lineTo(p.x+p.w+PS, p.y-PD); ctx.lineTo(p.x+p.w, p.y);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // 上面の目地
+    ctx.strokeStyle='rgba(122,58,21,.4)'; ctx.lineWidth=2;
+    for(let bx=p.x+30; bx<p.x+p.w; bx+=30){
+      ctx.beginPath(); ctx.moveTo(bx,p.y); ctx.lineTo(bx+PS,p.y-PD); ctx.stroke();
+    }
+    // 前面のレンガ
+    for(let bx=p.x; bx<p.x+p.w; bx+=30){
+      const bw = Math.min(30, p.x+p.w-bx);
+      ctx.fillStyle='#e2854a'; ctx.strokeStyle='#7a3a15'; ctx.lineWidth=3;
+      ctx.fillRect(bx, p.y, bw, 26); ctx.strokeRect(bx, p.y, bw, 26);
+      ctx.fillStyle='rgba(90,40,10,.35)'; ctx.fillRect(bx+3, p.y+20, bw-6, 4);
+    }
+  }
+
+  // --- パラソル(地形にそって配置) ---
+  for(const p of parasols){
+    const py0 = gy(p.x);
+    const apexY = py0-196;
+    // 地面におちるパラソルの影
+    ctx.fillStyle='rgba(40,60,90,.18)';
+    ctx.beginPath(); ctx.ellipse(p.x-24, py0-2, 66, 9, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle='#5a5a6a'; ctx.lineWidth=6;
+    ctx.beginPath(); ctx.moveTo(p.x,py0); ctx.lineTo(p.x,apexY+6); ctx.stroke();
+    ctx.fillStyle='#5a5a6a';
+    ctx.beginPath(); ctx.ellipse(p.x, py0+2, 20, 6, 0, 0, 7); ctx.fill();
+    // 赤いキャノピー(輪郭つき)
+    ctx.fillStyle='#f25c54'; ctx.strokeStyle='#a3352f'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(p.x-88,py0-122);
+    ctx.quadraticCurveTo(p.x, apexY-4, p.x+88, py0-122);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // 白いパネル
+    ctx.fillStyle='#fff8f2';
+    for(const k of [-58, -6, 46]){
+      ctx.beginPath(); ctx.moveTo(p.x, apexY);
+      ctx.lineTo(p.x+k, py0-122); ctx.lineTo(p.x+k+22, py0-122);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle='#a3352f';
+    ctx.beginPath(); ctx.arc(p.x, apexY-4, 5, 0, 7); ctx.fill();
+  }
+
+  // --- 扇風機(街頭ミストファン・地形にそって配置) ---
+  for(const f of fans){
+    const fy = gy(f.x);
+    // 地面におちる影
+    ctx.fillStyle='rgba(40,60,90,.18)';
+    ctx.beginPath(); ctx.ellipse(f.x-8, fy-2, 26, 6, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle='#445', ctx.lineWidth=7;
+    ctx.beginPath(); ctx.moveTo(f.x,fy); ctx.lineTo(f.x,fy-95); ctx.stroke();
+    ctx.fillStyle='#e6eef4'; ctx.strokeStyle='#334'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.arc(f.x,fy-120,32,0,7); ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.translate(f.x,fy-120); ctx.rotate(timeT*10);
+    ctx.fillStyle='#7ec8e3';
+    for(let i=0;i<3;i++){ ctx.rotate(2.094);
+      ctx.beginPath(); ctx.ellipse(0,-15,9,17,0,0,7); ctx.fill(); }
+    ctx.restore();
+    ctx.strokeStyle='rgba(120,140,160,.5)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(f.x,fy-120,22,0,7); ctx.stroke();
+    ctx.fillStyle='#334'; ctx.beginPath(); ctx.arc(f.x,fy-120,6,0,7); ctx.fill();
+  }
+
+  // --- アイテム(地面に影がおちて浮いてる感じに) ---
+  for(const it of items){
+    if(it.got) continue;
+    const by = it.y + Math.sin(it.bob)*7;
+    ctx.fillStyle='rgba(40,60,90,.2)';
+    ctx.beginPath(); ctx.ellipse(it.x-5, gy(it.x)-2, 17, 5, 0, 0, 7); ctx.fill();
+    drawItem(it.t, it.x, by);
+  }
+
+  // --- ゴール:旗+かき氷屋さん ---
+  {
+    const gx = GOAL_X + 40;
+    // ゴールの旗ポール(マリオ風)
+    ctx.strokeStyle='#3a7a3a'; ctx.lineWidth=6;
+    ctx.beginPath(); ctx.moveTo(GOAL_X-30,GROUND_Y); ctx.lineTo(GOAL_X-30,GROUND_Y-270); ctx.stroke();
+    ctx.fillStyle='#ffd23f'; ctx.strokeStyle='#c9941a'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(GOAL_X-30, GROUND_Y-274, 9, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#d33'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(GOAL_X-30,GROUND_Y-262);
+    ctx.lineTo(GOAL_X-92,GROUND_Y-240); ctx.lineTo(GOAL_X-30,GROUND_Y-218);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#d33'; ctx.font='bold 24px serif'; ctx.textAlign='center';
+    ctx.fillText('氷', GOAL_X-58, GROUND_Y-231);
+    // かき氷屋さんの小屋
+    ctx.fillStyle='#c9803f'; ctx.strokeStyle='#5a3418'; ctx.lineWidth=4;
+    ctx.fillRect(gx-90, GROUND_Y-170, 180, 170);
+    ctx.strokeRect(gx-90, GROUND_Y-170, 180, 170);
+    // 小屋の右側面(立体感)
+    ctx.fillStyle='#a86a34';
+    ctx.beginPath();
+    ctx.moveTo(gx+90,GROUND_Y-170); ctx.lineTo(gx+104,GROUND_Y-180);
+    ctx.lineTo(gx+104,GROUND_Y-10); ctx.lineTo(gx+90,GROUND_Y);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#5a3418'; ctx.lineWidth=3; ctx.stroke();
+    // 売り場
+    ctx.fillStyle='#ecf7ff'; ctx.fillRect(gx-70, GROUND_Y-138, 140, 78);
+    ctx.strokeStyle='#5a3418'; ctx.lineWidth=3; ctx.strokeRect(gx-70, GROUND_Y-138, 140, 78);
+    ctx.fillStyle='#8a5a30'; ctx.fillRect(gx-76, GROUND_Y-66, 152, 8);
+    // 紅白の縞テント
+    ctx.fillStyle='#8a4a28'; ctx.fillRect(gx-116, GROUND_Y-206, 232, 6);
+    for(let i=0;i<10;i++){
+      const c = i%2 ? '#fffdf6' : '#e05a4a';
+      ctx.fillStyle=c;
+      ctx.fillRect(gx-110+i*22, GROUND_Y-200, 22, 30);
+      ctx.beginPath(); ctx.arc(gx-110+i*22+11, GROUND_Y-170, 11, 0, 3.2); ctx.fill();
+    }
+    ctx.strokeStyle='#5a3418'; ctx.lineWidth=3;
+    ctx.strokeRect(gx-110, GROUND_Y-200, 220, 30);
+    // カウンターのかき氷
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#9fc4d8'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(gx-14,GROUND_Y-96); ctx.lineTo(gx+14,GROUND_Y-96);
+    ctx.lineTo(gx+10,GROUND_Y-76); ctx.lineTo(gx-10,GROUND_Y-76); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fdfdfd';
+    ctx.beginPath(); ctx.arc(gx,GROUND_Y-102,15,3.14,0); ctx.fill();
+    ctx.fillStyle='rgba(255,110,130,.85)';
+    ctx.beginPath(); ctx.arc(gx,GROUND_Y-103,11,3.3,6.1); ctx.fill();
+  }
+
+  // --- パーティクル ---
+  for(const p of particles){
+    p.t += 1/60; p.x += p.vx/60; p.y += p.vy/60;
+    if(p.type==='wind'){
+      ctx.strokeStyle=`rgba(200,240,255,${Math.max(0,.8-p.t)})`; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+p.vx*0.18, p.y+3); ctx.stroke();
+    } else if(p.type==='cool'){
+      ctx.fillStyle=`rgba(180,230,255,${Math.max(0,.9-p.t)})`;
+      ctx.font='14px serif'; ctx.textAlign='center'; ctx.fillText('❄', p.x, p.y);
+    } else {
+      ctx.fillStyle=`rgba(255,240,150,${Math.max(0,1-p.t*1.4)})`;
+      ctx.beginPath(); ctx.arc(p.x,p.y,4,0,7); ctx.fill();
+    }
+  }
+  particles = particles.filter(p=>p.t<1.2);
+
+  // --- プレイヤー(らくがきエイリアン・半分サイズ) ---
+  drawPlayer();
+
+  // --- 浮き文字 ---
+  ctx.textAlign='center'; ctx.font='bold 21px sans-serif';
+  for(const p of popups){
+    p.t += 1/60;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.max(0, 1 - p.t*0.9);
+    ctx.fillText(p.text, p.x, p.y - p.t*45);
+    ctx.globalAlpha = 1;
+  }
+  popups = popups.filter(p=>p.t<1.2);
+
+  ctx.restore();
+
+  // --- 流れる雲(輪郭つきのポップな雲。影はgetShadeRectsが担当) ---
+  ctx.save(); ctx.translate(-camX,0);
+  for(const c of clouds) drawCloud(c.x, c);
+  ctx.restore();
+
+  // --- 陽炎(日向にいるとき画面のふちが熱くなる) ---
+  if((state==='play'||state==='melt') && !inShade(player.x) && !nearFan(player.x)){
+    const danger = player.heat/HEAT_MAX;
+    const vg = ctx.createRadialGradient(W/2,H/2,H*0.35,W/2,H/2,H*0.75);
+    vg.addColorStop(0,'rgba(255,120,60,0)');
+    vg.addColorStop(1,`rgba(255,80,40,${0.10+danger*0.30})`);
+    ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  }
+}
+
+// まるい丘(マリオ風・ハイライトのてんてん付き)
+function drawHill(x, base, r, c1, c2){
+  ctx.fillStyle=c1; ctx.strokeStyle=c2; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.arc(x, base, r, 3.14, 0); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.3)';
+  ctx.beginPath();
+  ctx.arc(x+r*0.32, base-r*0.62, r*0.09, 0, 7);
+  ctx.arc(x+r*0.52, base-r*0.4,  r*0.07, 0, 7);
+  ctx.arc(x+r*0.14, base-r*0.78, r*0.06, 0, 7);
+  ctx.fill();
+}
+
+// 流れる雲(輪郭つき・底が平らなゲームの雲)
+function drawCloud(wx, c){
+  const s=c.s, y=c.y;
+  ctx.fillStyle='#ffffff'; ctx.strokeStyle='#89b8e8'; ctx.lineWidth=3.5; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(wx-70*s, y+14*s);
+  ctx.quadraticCurveTo(wx-84*s, y-10*s, wx-48*s, y-12*s);
+  ctx.quadraticCurveTo(wx-42*s, y-38*s, wx-8*s,  y-30*s);
+  ctx.quadraticCurveTo(wx+16*s, y-46*s, wx+36*s, y-18*s);
+  ctx.quadraticCurveTo(wx+72*s, y-20*s, wx+66*s, y+2*s);
+  ctx.quadraticCurveTo(wx+84*s, y+14*s, wx+58*s, y+14*s);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+}
+
+// アイテムをかわいく手描きする
+function drawItem(t,x,y){
+  ctx.save(); ctx.translate(x,y); ctx.lineCap='round'; ctx.lineJoin='round';
+  if(t==='ice'){
+    // ソフトクリーム(原画のコーンをポップに)
+    ctx.fillStyle='#eab86e'; ctx.strokeStyle='#a3763d'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(-11,-2); ctx.lineTo(11,-2); ctx.lineTo(0,24); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(140,90,40,.55)'; ctx.lineWidth=1.5;   // コーンの格子
+    ctx.beginPath();
+    ctx.moveTo(-8,2); ctx.lineTo(5,15); ctx.moveTo(-2,-1); ctx.lineTo(8,9);
+    ctx.moveTo(8,2); ctx.lineTo(-5,15); ctx.moveTo(2,-1); ctx.lineTo(-8,9);
+    ctx.stroke();
+    ctx.fillStyle='#fffaf2'; ctx.strokeStyle='#d8b8a0'; ctx.lineWidth=2.5;   // クリーム
+    ctx.beginPath(); ctx.arc(0,-10,12,0,7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-2,-21,8.5,0,7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(1,-29,5,0,7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.9)';
+    ctx.beginPath(); ctx.arc(-5,-13,3,0,7); ctx.fill();
+  } else if(t==='juice'){
+    // メロンジュース(緑色のコップ!)
+    ctx.strokeStyle='#ff8fa0'; ctx.lineWidth=4;                  // ストロー
+    ctx.beginPath(); ctx.moveTo(5,-16); ctx.lineTo(11,-32); ctx.stroke();
+    ctx.fillStyle='#4fbf5f'; ctx.strokeStyle='#2e8a3e'; ctx.lineWidth=2.5;   // コップ
+    ctx.beginPath(); ctx.moveTo(-13,-18); ctx.lineTo(13,-18); ctx.lineTo(10,17); ctx.lineTo(-10,17); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#b4ec86';                                     // ジュースの表面
+    ctx.beginPath(); ctx.ellipse(0,-18,13,4,0,0,7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.4)';                        // グラスのつや
+    ctx.fillRect(-9,-13,4,25);
+    ctx.fillStyle='rgba(255,255,255,.75)';                       // 泡
+    ctx.beginPath(); ctx.arc(3,-6,2,0,7); ctx.arc(-2,2,1.6,0,7); ctx.arc(5,7,1.6,0,7); ctx.fill();
+  } else {
+    // 涼感シャツ
+    ctx.fillStyle='#8fd7ff'; ctx.strokeStyle='#3a8ac0'; ctx.lineWidth=2.5;
+    ctx.beginPath();
+    ctx.moveTo(-8,-16); ctx.lineTo(8,-16); ctx.lineTo(16,-8); ctx.lineTo(11,-1);
+    ctx.lineTo(8,-4); ctx.lineTo(8,15); ctx.lineTo(-8,15); ctx.lineTo(-8,-4);
+    ctx.lineTo(-11,-1); ctx.lineTo(-16,-8); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,-16,4,0.2,2.94); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='13px serif'; ctx.textAlign='center';
+    ctx.fillText('❄', 0, 6);
+  }
+  ctx.restore();
+}
+
+/* =========================================================
+   プレイヤー:こどもの原画そっくりの「らくがきエイリアン」
+   (前作の半分サイズ。線は0.13秒ごとにプルプル揺れる)
+========================================================= */
+function drawPlayer(){
+  const hurtFlash = player.hurt>0 && Math.floor(timeT*12)%2===0;
+  const hot = player.heat>60;
+  const melt = state==='melt' ? Math.min(1, meltT/1.2) : 0;
+  const walk = player.onGround && player.vx!==0;
+  const lift = Math.sin(player.walkT);
+  const PAPER='#fdfbf5', INK='#2b2b2b';
+
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  ctx.scale(0.5, 0.5);                       // ★ 半分サイズ
+  if(hurtFlash) ctx.globalAlpha=.5;
+
+  // 影 or とけた水たまり(原画「とけた」の再現)
+  if(melt>0){
+    ctx.fillStyle=PAPER;
+    wEllipse(0, 0, 30+melt*42, 9+melt*6, 0, 2.5);
+    ctx.fill();
+    ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.stroke();
+    ctx.fillStyle=PAPER; ctx.lineWidth=3;
+    wEllipse(-42-melt*24, 2, 6, 4, 0.3, 1.5); ctx.fill(); ctx.stroke();
+    wEllipse(46+melt*20, 3, 5, 3.5, -0.3, 1.5); ctx.fill(); ctx.stroke();
+  }else{
+    // 影は地面におとす(ジャンプすると小さく遠くなる=立体感)
+    const hgt = gy(player.x) - player.y;      // 地面からの高さ
+    if(hgt > -4){
+      const k = Math.max(0.45, 1 - Math.max(0,hgt)/300);
+      ctx.fillStyle=`rgba(20,35,60,${0.16*k+0.08})`;
+      ctx.beginPath(); ctx.ellipse(-hgt*0.12, hgt*2+3, 26*k, 7*k, 0, 0, 7); ctx.fill();
+    }
+  }
+
+  // ❄️ひんやりボディ:からだのまわりに冷気オーラ
+  if(upg.cool>0){
+    ctx.save();
+    ctx.globalAlpha = 0.25 + 0.12*Math.sin(timeT*3);
+    ctx.fillStyle = '#bfe9ff';
+    wEllipse(0, -46, 44+upg.cool*2, 44+upg.cool*2, 0, 3); ctx.fill();
+    ctx.restore();
+  }
+
+  // 💪つよいからだ:あかいマント(強化ぶん大きく)
+  if(upg.body>0){
+    ctx.save();
+    ctx.fillStyle='#e03a3a'; ctx.strokeStyle='#a52020'; ctx.lineWidth=3; ctx.lineJoin='round';
+    const cw = 30 + upg.body*8;
+    ctx.beginPath();
+    ctx.moveTo(-18,-62); ctx.lineTo(18,-62);
+    ctx.lineTo(cw*0.6, -20+Math.sin(timeT*3)*3);
+    ctx.lineTo(0, -8);
+    ctx.lineTo(-cw*0.6, -20+Math.cos(timeT*3)*3);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // とける演出:ぺしゃんとつぶれる
+  ctx.scale(player.face*(1+melt*0.5), 1-melt*0.9);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.fillStyle=PAPER;
+
+  // あんよ(ちいさな楕円あし・歩くとテコテコ。すばやいあしは あかいシューズ)
+  const lL = walk ? Math.max(0,lift)*7 : 0;
+  const lR = walk ? Math.max(0,-lift)*7 : 0;
+  const tuck = player.onGround ? 0 : 4;
+  const footC = upg.speed>0 ? '#ff5a3a' : PAPER;
+  ctx.fillStyle=footC;
+  wEllipse(-11, -10-lL-tuck, 6.5, 10, 0.14, 1.6); ctx.fill(); ctx.stroke();
+  wEllipse( 11, -10-lR-tuck, 6.5, 10, -0.14, 1.6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=PAPER;
+
+  // おてて(ちょこん・玉から先に描いて玉の輪郭をきれいに)
+  const armR = walk ? lift*0.15 : 0;
+  wEllipse(-41, -44, 10, 5, -0.35+armR, 1.6); ctx.fill(); ctx.stroke();
+  wEllipse( 41, -42, 10, 5,  0.35-armR, 1.6); ctx.fill(); ctx.stroke();
+
+  // 玉ボディ(まんまる1つ!)
+  wEllipse(0, -46, 38, 38, 0, 2.4); ctx.fill(); ctx.stroke();
+
+  // 涼感シャツ(玉のおなかに巻くらくがきTシャツ)
+  if(player.shirt>0){
+    ctx.save();
+    wEllipse(0, -46, 38, 38, 0, 2.4); ctx.clip();
+    ctx.fillStyle='#c4e7ff';
+    ctx.fillRect(-42, -32, 84, 28);
+    ctx.strokeStyle='#4a90c2'; ctx.lineWidth=3;
+    ctx.beginPath();
+    for(let x=-38; x<=38; x+=4){
+      const [qx,qy] = wpt(x, -32, 1.4);
+      x===-38 ? ctx.moveTo(qx,qy) : ctx.lineTo(qx,qy);
+    }
+    ctx.stroke();
+    ctx.fillStyle='#3a8ac0'; ctx.font='12px serif'; ctx.textAlign='center';
+    ctx.fillText('❄', 0, -14);
+    ctx.restore();
+    ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.fillStyle=PAPER;
+  }
+
+  // かお(玉の上のほうに)
+  if(melt>0.25){
+    // とけてるときは >< の目
+    ctx.lineWidth=3.5;
+    wLine(-17,-62,-8,-56,1.2); ctx.stroke();
+    wLine(-17,-50,-8,-56,1.2); ctx.stroke();
+    wLine(17,-62,8,-56,1.2); ctx.stroke();
+    wLine(17,-50,8,-56,1.2); ctx.stroke();
+  }else{
+    // 左目:まんまるの輪郭(原画どおり ぬらない)
+    ctx.lineWidth=3.2;
+    wEllipse(-10, -58, 5.5, 7.5, 0, 1); ctx.stroke();
+    // 右目:つり目(原画どおり ぬりつぶし)
+    wEllipse(11, -56, 8.5, 3.2, -0.5, 1);
+    ctx.fillStyle=INK; ctx.fill(); ctx.stroke();
+    ctx.fillStyle=PAPER;
+  }
+
+  // くち(あいたにっこり口・暑いとはぁはぁ)
+  ctx.lineWidth=3.5;
+  const mouthH = (hot||melt>0) ? 7+Math.sin(timeT*8)*2 : 5.5;
+  ctx.beginPath();
+  for(let i=0; i<=10; i++){
+    const a = i/10*Math.PI;
+    const [qx,qy] = wpt(-Math.cos(a)*9, -40+Math.sin(a)*mouthH, 1.3);
+    i ? ctx.lineTo(qx,qy) : ctx.moveTo(qx,qy);
+  }
+  ctx.closePath();
+  ctx.fillStyle='#fff'; ctx.fill();
+  ctx.strokeStyle=INK; ctx.stroke();
+  ctx.fillStyle=PAPER;
+
+  // 暑いとき:らくがき風の汗
+  if(hot && melt===0){
+    ctx.strokeStyle='#4a9fd8'; ctx.lineWidth=2.5; ctx.fillStyle='#d9efff';
+    wEllipse(33, -72+Math.sin(timeT*5)*3, 3.5, 5, 0.2, 1); ctx.fill(); ctx.stroke();
+    wEllipse(-32, -66+Math.cos(timeT*4.5)*3, 2.8, 4, -0.2, 1); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle=INK; ctx.fillStyle=PAPER;
+  }
+
+  ctx.restore();
+}
+
+// ---- メインループ ----
+function loop(ts){
+  const dt = Math.min((ts-lastTs)/1000, 0.05); lastTs = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(ts=>{ lastTs=ts; loop(ts); });
+
+let lastReward = 0;
+function updateCoinHud(){
+  document.getElementById('coinNum').textContent = coins;
+}
+
+// ---- ショップ ----
+function openShop(){
+  state='shop';
+  document.getElementById('resultScreen').style.display='none';
+  document.getElementById('controls').style.display='none';
+  document.getElementById('hud').style.display='none';
+  renderShop();
+  document.getElementById('shopScreen').style.display='flex';
+}
+function renderShop(){
+  document.getElementById('shopCoinNum').textContent = coins;
+  const list = document.getElementById('shopList');
+  list.innerHTML = '';
+  for(const u of UPGRADES){
+    const lv = upg[u.key];
+    const maxed = lv >= 3;
+    const cost = maxed ? 0 : u.cost[lv];
+    const dots = '●'.repeat(lv) + '○'.repeat(3-lv);
+    const row = document.createElement('div');
+    row.className = 'shopItem';
+    row.innerHTML = `
+      <div class="ico">${u.ico}</div>
+      <div class="info">
+        <div class="nm">${u.nm} <span class="dots">${dots}</span></div>
+        <div class="lv">${u.desc}</div>
+      </div>`;
+    const btn = document.createElement('button');
+    btn.className = 'buyBtn' + (maxed?' max':'');
+    if(maxed){ btn.textContent = 'MAX'; btn.disabled = true; }
+    else { btn.textContent = `🪙${cost}`; btn.disabled = coins < cost; }
+    btn.onclick = ()=>{
+      if(coins >= cost && !maxed){
+        coins -= cost; upg[u.key]++;
+        updateCoinHud(); renderShop();
+      }
+    };
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
+// ---- 開始・リトライ・レベルアップ ----
+function startGame(){
+  initPlayer(); initItems(); initManholes(); initPits();
+  // 雲をリセット(レベルが上がると速くなる)
+  for(const c of clouds){ c.x = c.x0; c.v = c.v0 * (1 + 0.15*(level-1)); }
+  document.getElementById('lvBadge').textContent = 'Lv.'+level;
+  camX=0; timeT=0; gotCount=0; meltT=0; popups=[]; particles=[];
+  state='play';
+  updateCoinHud();
+  document.getElementById('titleScreen').style.display='none';
+  document.getElementById('resultScreen').style.display='none';
+  document.getElementById('shopScreen').style.display='none';
+  document.getElementById('hud').style.display='block';
+  document.getElementById('coinHud').style.display='block';
+  document.getElementById('controls').style.display='flex';
+}
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  level=1; coins=0; upg.body=0; upg.speed=0; upg.cool=0;   // さいしょからやり直し
+  startGame();
+});
+document.getElementById('retryBtn').addEventListener('click', startGame);
+// クリア結果の「ショップへ」→ ショップを開く
+document.getElementById('nextBtn').addEventListener('click', openShop);
+// ショップの「つぎのレベルへ」→ レベルアップして開始
+document.getElementById('shopGo').addEventListener('click', ()=>{ level++; startGame(); });
+</script>
+</body>
+</html>
