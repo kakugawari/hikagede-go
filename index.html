@@ -73,7 +73,14 @@
   #shopScreen { display:none; background:linear-gradient(180deg,#3a5a8a 0%,#5c94fc 100%); }
   #shopCard { background:#fffdf5; border-radius:22px; border:4px solid #333; padding:22px 22px 26px; max-width:440px; width:92%; box-shadow:0 8px 0 rgba(0,0,0,.3); }
   #shopCard h2 { color:#e8722a; font-size:min(6.5vw,28px); margin-bottom:4px; }
-  #shopCoin { font-weight:bold; color:#a06a10; font-size:16px; margin-bottom:14px; }
+  #shopCoin { font-weight:bold; color:#a06a10; font-size:16px; margin-bottom:6px; }
+  #alienStat { font-size:13px; color:#555; margin-bottom:12px; }
+  .expOuter { height:9px; background:#eee; border-radius:5px; margin-top:5px; overflow:hidden; border:1px solid #ddd; }
+  .expFill { height:100%; background:linear-gradient(90deg,#7ec8e3,#4a9fd8); }
+  .expNum { font-size:11px; color:#999; margin-top:2px; }
+  #shopList { max-height:44vh; overflow-y:auto; }
+  #titleStatus { display:none; background:rgba(255,255,255,.88); border-radius:14px; padding:8px 20px; font-size:14px; color:#334; font-weight:bold; margin-bottom:20px; }
+  .miniBtn { margin-top:16px; font-family:inherit; font-size:12px; color:#fff; background:rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.5); border-radius:16px; padding:6px 14px; cursor:pointer; }
   .shopItem { display:flex; align-items:center; gap:12px; background:#fff7e6; border:2px solid #e8c88a; border-radius:14px; padding:10px 12px; margin-bottom:10px; text-align:left; }
   .shopItem .ico { font-size:30px; width:38px; text-align:center; flex-shrink:0; }
   .shopItem .info { flex:1; min-width:0; }
@@ -86,6 +93,12 @@
   .buyBtn:disabled { background:#ccc; box-shadow:0 3px 0 #999; opacity:.7; }
   #shopGo { margin-top:8px; }
   ruby rt { font-size:.5em; }
+  /* ===== 縦持ちのとき「よこにしてね」画面 ===== */
+  #rotateScreen { display:none; position:fixed; inset:0; z-index:60; background:linear-gradient(180deg,#1a2a4a,#2a4a7a); color:#fff; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:14px; }
+  #rotateScreen .phone { font-size:64px; animation:rotPhone 1.6s ease-in-out infinite; }
+  @keyframes rotPhone { 0%,20%{ transform:rotate(0deg);} 60%,100%{ transform:rotate(90deg);} }
+  #rotateScreen .msg { font-size:18px; font-weight:bold; line-height:1.8; }
+  @media (orientation: portrait){ #rotateScreen { display:flex; } }
 </style>
 </head>
 <body>
@@ -107,11 +120,18 @@
 <div id="shirtBadge">👕 <ruby>涼感<rt>りょうかん</rt></ruby>シャツ <span id="shirtTime"></span></div>
 <div id="coinHud">🪙 <span id="coinNum">0</span></div>
 
+<!-- 縦持ちのときの案内 -->
+<div id="rotateScreen">
+  <div class="phone">📱</div>
+  <div class="msg">スマホを よこにしてね!<br>このゲームは よこ<ruby>画面<rt>がめん</rt></ruby>であそぶよ 🍧</div>
+</div>
+
 <!-- ショップ画面 -->
 <div class="screen" id="shopScreen">
   <div id="shopCard">
     <h2>🛒 エイリアンショップ</h2>
     <div id="shopCoin">もっているコイン 🪙 <span id="shopCoinNum">0</span></div>
+    <div id="alienStat"></div>
     <div id="shopList"></div>
     <button class="bigBtn" id="shopGo">つぎのレベルへ ▶</button>
   </div>
@@ -130,8 +150,10 @@
 <div class="screen" id="titleScreen">
   <h1>ひかげでゴー!</h1>
   <div class="sub">☀️ <ruby>日陰<rt>ひかげ</rt></ruby>をすすんで かき<ruby>氷屋<rt>ごおりや</rt></ruby>さんへ! 🍧</div>
+  <div id="titleStatus"></div>
   <button class="bigBtn" id="startBtn">スタート!</button>
   <div class="hint">◀ ▶ うごく ／ ジャンプでとぶ</div>
+  <button class="miniBtn" id="resetBtn" style="display:none">さいしょからやりなおす(データをけす)</button>
 </div>
 
 <!-- 結果画面 -->
@@ -257,7 +279,7 @@ const player = {};
 function initPlayer(){
   Object.assign(player, {
     x:120, y:GROUND_Y, vx:0, vy:0, onGround:true,
-    heat:20, shirt:0, hurt:0, face:1, walkT:0, fell:false
+    heat:[20,13,7,2][upg.relax], shirt:0, hurt:0, face:1, walkT:0, fell:false
   });
 }
 
@@ -266,13 +288,46 @@ let state = 'title';   // title / play / melt / clear / over / shop
 let level = 1;         // 現在のレベル(クリアで+1)
 let coins = 0;         // もっているコイン
 // エイリアンの強化レベル(0〜3)
-const upg = { body:0, speed:0, cool:0 };
+const upg = { body:0, speed:0, cool:0, snack:0, luck:0, relax:0 };
 // 強化の定義
 const UPGRADES = [
-  { key:'body',  ico:'💪', nm:'つよいからだ',   desc:'あつさに つよくなる',     cost:[3,6,10] },
-  { key:'speed', ico:'👟', nm:'すばやいあし',   desc:'はやく はしれる',         cost:[3,6,10] },
-  { key:'cool',  ico:'❄️', nm:'ひんやりボディ', desc:'日陰の かいふくアップ',   cost:[3,6,10] },
+  { key:'body',  ico:'💪', nm:'つよいからだ',   desc:'日ざしのダメージが へる',        cost:[3,6,10] },
+  { key:'speed', ico:'👟', nm:'すばやいあし',   desc:'はやく はしれて 高くとべる',    cost:[3,6,10] },
+  { key:'cool',  ico:'❄️', nm:'ひんやりボディ', desc:'日陰の かいふくアップ',          cost:[3,6,10] },
+  { key:'snack', ico:'🍧', nm:'おやつだいすき', desc:'アイスとジュースの きき目アップ', cost:[4,7,11] },
+  { key:'luck',  ico:'🪙', nm:'コインうん',     desc:'クリアのコインが +1まいずつ',    cost:[5,8,12] },
+  { key:'relax', ico:'🌙', nm:'あさかつボディ', desc:'すずしい体温で スタートできる',  cost:[4,7,11] },
 ];
+
+// ---- エイリアンの成長(けいけんち・レベル・称号) ----
+const alien = { exp:0, lv:1 };
+const TITLES = [
+  [1,'ひよっこエイリアン'], [3,'なつのけんきゅうせい'], [5,'ひかげマスター'],
+  [7,'かきごおりのたつじん'], [10,'なつのおうさま'],
+];
+function alienTitle(){ let t=TITLES[0][1]; for(const [l,n] of TITLES){ if(alien.lv>=l) t=n; } return t; }
+function expToNext(){ return alien.lv*20; }
+let totalClears = 0;
+
+// ---- セーブ(そだてた記録はこの端末に残る) ----
+const SAVE_KEY = 'hikage-de-go-save';
+function saveData(){
+  try{
+    localStorage.setItem(SAVE_KEY, JSON.stringify({coins, upg, alien, level, totalClears}));
+  }catch(e){}
+}
+function loadData(){
+  try{
+    const d = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if(!d) return false;
+    coins = d.coins||0;
+    Object.assign(upg, d.upg||{});
+    Object.assign(alien, d.alien||{});
+    level = d.level||1;
+    totalClears = d.totalClears||0;
+    return true;
+  }catch(e){ return false; }
+}
 let camX = 0, timeT = 0, gotCount = 0, lastTs = 0, meltT = 0;
 let popups = [];
 let particles = [];
@@ -494,9 +549,10 @@ function update(dt){
     it.bob += dt*3;
     if(Math.abs(player.x-it.x)<32 && Math.abs((player.y-25)-it.y)<48){
       it.got = true; gotCount++;
-      if(it.t==='ice'){   player.heat=Math.max(0,player.heat-35); popup(it.x,it.y-28,'アイスうま! -35','#1a9bd7'); }
-      if(it.t==='juice'){ player.heat=Math.max(0,player.heat-20); popup(it.x,it.y-28,'メロンジュース ごくごく! -20','#2e8a3e'); }
-      if(it.t==='shirt'){ player.shirt=15; popup(it.x,it.y-28,'着替えた! 涼しい〜','#3aa0e0'); }
+      const snackK = 1 + 0.25*upg.snack;   // 🍧おやつだいすき
+      if(it.t==='ice'){   const h=Math.round(35*snackK); player.heat=Math.max(0,player.heat-h); popup(it.x,it.y-28,'アイスうま! -'+h,'#1a9bd7'); }
+      if(it.t==='juice'){ const h=Math.round(20*snackK); player.heat=Math.max(0,player.heat-h); popup(it.x,it.y-28,'メロンジュース ごくごく! -'+h,'#2e8a3e'); }
+      if(it.t==='shirt'){ player.shirt=15+3*upg.snack; popup(it.x,it.y-28,'着替えた! 涼しい〜','#3aa0e0'); }
       for(let i=0;i<10;i++) particles.push({x:it.x,y:it.y,vx:(Math.random()-.5)*160,vy:-Math.random()*180,t:0,type:'spark'});
     }
   }
@@ -521,9 +577,16 @@ function endGame(clear, reason){
   document.getElementById('shirtBadge').style.display='none';
   document.getElementById('coinHud').style.display='none';
   if(clear){
-    // コインをもらえる:クリア基本3枚+アイテム1こ1枚+体温余裕ボーナス
-    lastReward = 3 + gotCount + (player.heat < 40 ? 2 : 0);
+    // コイン:基本3枚+アイテム1こ1枚+体温余裕ボーナス+🪙コインうん
+    lastReward = 3 + gotCount + (player.heat < 40 ? 2 : 0) + upg.luck;
     coins += lastReward;
+    totalClears++;
+    // けいけんちをもらってエイリアンが育つ
+    lastExp = 12 + level*3 + gotCount*2;
+    alien.exp += lastExp;
+    lastLvUp = 0;
+    while(alien.exp >= expToNext()){ alien.exp -= expToNext(); alien.lv++; lastLvUp++; }
+    saveData();
     updateCoinHud();
     state='clear';
     showResult(true);
@@ -547,7 +610,8 @@ function showResult(clear, reason){
     em.textContent='🍧';
     tt.textContent=`レベル${level} クリア!!`;
     tt.className='clear';
-    dt.innerHTML = `クリアタイム <b>${timeT.toFixed(1)}秒</b><br>コインを <b>🪙${lastReward}</b> もらった!<br>ショップでエイリアンを つよくしよう✨`;
+    dt.innerHTML = `クリアタイム <b>${timeT.toFixed(1)}秒</b><br>コイン <b>🪙${lastReward}</b> ・ けいけんち <b>+${lastExp}</b>`
+      + (lastLvUp ? `<br>🎉 エイリアンが <b>Lv.${alien.lv}</b> になった!<br>「${alienTitle()}」` : `<br>ショップで つよくしよう✨`);
     document.getElementById('nextBtn').textContent = 'ショップへ 🛒';
   }else if(reason==='fall'){
     em.textContent='🕳️';
@@ -1049,6 +1113,20 @@ function drawItem(t,x,y){
   ctx.restore();
 }
 
+// 星を描く(エイリアンのバッジ用)
+function drawStar(cx,cy,r,fill,stroke){
+  ctx.beginPath();
+  for(let i=0;i<10;i++){
+    const a = -Math.PI/2 + i*Math.PI/5;
+    const rr = i%2 ? r*0.45 : r;
+    const x = cx+Math.cos(a)*rr, y = cy+Math.sin(a)*rr;
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  }
+  ctx.closePath();
+  ctx.fillStyle=fill; ctx.fill();
+  ctx.strokeStyle=stroke; ctx.lineWidth=2; ctx.stroke();
+}
+
 /* =========================================================
    プレイヤー:こどもの原画そっくりの「らくがきエイリアン」
    (前作の半分サイズ。線は0.13秒ごとにプルプル揺れる)
@@ -1083,6 +1161,17 @@ function drawPlayer(){
       ctx.fillStyle=`rgba(20,35,60,${0.16*k+0.08})`;
       ctx.beginPath(); ctx.ellipse(-hgt*0.12, hgt*2+3, 26*k, 7*k, 0, 0, 7); ctx.fill();
     }
+  }
+
+  // 🌈 エイリアンLv10:なつのおうさまの虹オーラ
+  if(alien.lv>=10){
+    const rc=['#ff6b6b','#ffb84d','#ffe066','#7ed957','#4a9fd8','#b06ae0'];
+    ctx.save();
+    for(let i=0;i<rc.length;i++){
+      ctx.strokeStyle=rc[i]; ctx.globalAlpha=.5; ctx.lineWidth=4;
+      ctx.beginPath(); ctx.arc(0,-46, 54+i*5, Math.PI*1.08, Math.PI*1.92); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // ❄️ひんやりボディ:からだのまわりに冷気オーラ
@@ -1150,6 +1239,28 @@ function drawPlayer(){
     ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.fillStyle=PAPER;
   }
 
+  // ---- エイリアンLvのごほうび(そだつと見た目が進化!) ----
+  // ⭐ Lv3:むねに星バッジ
+  if(alien.lv>=3){
+    drawStar(0,-26,7,'#ffd23f','#c9941a');
+  }
+  // 🧢 Lv5:あかい帽子(Lv7で王冠にランクアップ)
+  if(alien.lv>=5 && alien.lv<7){
+    ctx.fillStyle='#e05a4a'; ctx.strokeStyle='#a3352f'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(0,-80,19,Math.PI,0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(14,-80,13,4,0,0,7); ctx.fill(); ctx.stroke();
+  }
+  // 👑 Lv7:金の王冠
+  if(alien.lv>=7){
+    ctx.fillStyle='#ffd23f'; ctx.strokeStyle='#c9941a'; ctx.lineWidth=3; ctx.lineJoin='round';
+    ctx.beginPath();
+    ctx.moveTo(-15,-80); ctx.lineTo(-15,-94); ctx.lineTo(-7,-86);
+    ctx.lineTo(0,-97); ctx.lineTo(7,-86); ctx.lineTo(15,-94); ctx.lineTo(15,-80);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#e05a4a';
+    ctx.beginPath(); ctx.arc(0,-85,2.6,0,7); ctx.fill();
+  }
+
   // かお(玉の上のほうに)
   if(melt>0.25){
     // とけてるときは >< の目
@@ -1202,7 +1313,7 @@ function loop(ts){
 }
 requestAnimationFrame(ts=>{ lastTs=ts; loop(ts); });
 
-let lastReward = 0;
+let lastReward = 0, lastExp = 0, lastLvUp = 0;
 function updateCoinHud(){
   document.getElementById('coinNum').textContent = coins;
 }
@@ -1218,6 +1329,10 @@ function openShop(){
 }
 function renderShop(){
   document.getElementById('shopCoinNum').textContent = coins;
+  document.getElementById('alienStat').innerHTML =
+    `👽 エイリアンLv.<b>${alien.lv}</b>「${alienTitle()}」 ・ つうさんクリア ${totalClears}回` +
+    `<div class="expOuter"><div class="expFill" style="width:${Math.min(100, alien.exp/expToNext()*100)}%"></div></div>` +
+    `<div class="expNum">つぎのLvまで あと ${expToNext()-alien.exp}</div>`;
   const list = document.getElementById('shopList');
   list.innerHTML = '';
   for(const u of UPGRADES){
@@ -1240,6 +1355,7 @@ function renderShop(){
     btn.onclick = ()=>{
       if(coins >= cost && !maxed){
         coins -= cost; upg[u.key]++;
+        saveData();
         updateCoinHud(); renderShop();
       }
     };
@@ -1249,11 +1365,20 @@ function renderShop(){
 }
 
 // ---- 開始・リトライ・レベルアップ ----
+// 横向きに固定できる端末では固定する(Androidのアプリ起動時など)
+function tryLockLandscape(){
+  try{
+    if(screen.orientation && screen.orientation.lock){
+      screen.orientation.lock('landscape').catch(()=>{});
+    }
+  }catch(e){}
+}
 function startGame(){
+  tryLockLandscape();
   initPlayer(); initItems(); initManholes(); initPits();
   // 雲をリセット(レベルが上がると速くなる)
   for(const c of clouds){ c.x = c.x0; c.v = c.v0 * (1 + 0.15*(level-1)); }
-  document.getElementById('lvBadge').textContent = 'Lv.'+level;
+  document.getElementById('lvBadge').textContent = 'ステージ'+level;
   camX=0; timeT=0; gotCount=0; meltT=0; popups=[]; particles=[];
   state='play';
   updateCoinHud();
@@ -1264,15 +1389,28 @@ function startGame(){
   document.getElementById('coinHud').style.display='block';
   document.getElementById('controls').style.display='flex';
 }
-document.getElementById('startBtn').addEventListener('click', ()=>{
-  level=1; coins=0; upg.body=0; upg.speed=0; upg.cool=0;   // さいしょからやり直し
+document.getElementById('startBtn').addEventListener('click', ()=>{ startGame(); });
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
+  level=1; coins=0; totalClears=0;
+  alien.exp=0; alien.lv=1;
+  for(const k in upg) upg[k]=0;
   startGame();
 });
 document.getElementById('retryBtn').addEventListener('click', startGame);
 // クリア結果の「ショップへ」→ ショップを開く
 document.getElementById('nextBtn').addEventListener('click', openShop);
 // ショップの「つぎのレベルへ」→ レベルアップして開始
-document.getElementById('shopGo').addEventListener('click', ()=>{ level++; startGame(); });
+document.getElementById('shopGo').addEventListener('click', ()=>{ level++; saveData(); startGame(); });
+
+// ---- 起動時:セーブがあれば「つづきから」に ----
+if(loadData()){
+  const st = document.getElementById('titleStatus');
+  st.style.display='block';
+  st.innerHTML = `👽 Lv.${alien.lv}「${alienTitle()}」 ・ ステージ${level} ・ 🪙${coins}`;
+  document.getElementById('startBtn').textContent = 'つづきから ▶';
+  document.getElementById('resetBtn').style.display='inline-block';
+}
 </script>
 </body>
 </html>
