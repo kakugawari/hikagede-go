@@ -1,7 +1,7 @@
 /* ひかげでゴー! Service Worker
    オフラインでも遊べるように、必要なファイルをキャッシュします。
    ゲームを更新したら CACHE の数字(v1→v2…)を上げてください。 */
-const CACHE = 'hikage-de-go-v6';
+const CACHE = 'hikage-de-go-v7';
 const ASSETS = [
   './',
   './index.html',

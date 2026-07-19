@@ -1399,14 +1399,27 @@ function miniFinish(){
 }
 function closeMini(){ document.getElementById('miniScreen').style.display='none'; mini=null; openShop(); }
 document.getElementById('miniSkip').addEventListener('click', closeMini);
-document.getElementById('miniGo').addEventListener('click', ()=>{ coins += mini.bonus; saveData(); closeMini(); });
-miniCv.addEventListener('pointerdown', e=>{
-  e.preventDefault();
-  if(!mini || mini.done) return;
-  const r = miniCv.getBoundingClientRect();
-  const x=(e.clientX-r.left)/r.width*MW, y=(e.clientY-r.top)/r.height*MH;
-  MINI_TAP[mini.type](x,y);
+document.getElementById('miniGo').addEventListener('click', ()=>{
+  if(!mini) return;                    // 連打ガード
+  coins += mini.bonus; saveData(); closeMini();
 });
+// タップ入力(pointerとtouchの両対応。二重発火はガード)
+let lastMiniTap = 0;
+function miniTapAt(clientX, clientY){
+  if(!mini || mini.done) return;
+  const now = Date.now();
+  if(now - lastMiniTap < 40) return;   // pointer+touchの二重発火よけ
+  lastMiniTap = now;
+  const r = miniCv.getBoundingClientRect();
+  const x = (clientX-r.left)/r.width*MW, y = (clientY-r.top)/r.height*MH;
+  try{ MINI_TAP[mini.type](x,y); }catch(err){ console.error('tap error:', err); }
+}
+miniCv.addEventListener('pointerdown', e=>{ e.preventDefault(); miniTapAt(e.clientX, e.clientY); });
+miniCv.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  const t = e.touches && e.touches[0];
+  if(t) miniTapAt(t.clientX, t.clientY);
+}, {passive:false});
 
 // ---- ミニゲーム共通の描画 ----
 function mSky(c1,c2){ const g=mc.createLinearGradient(0,0,0,MH); g.addColorStop(0,c1); g.addColorStop(1,c2); mc.fillStyle=g; mc.fillRect(0,0,MW,MH); }
@@ -1515,9 +1528,13 @@ const MINI_TAP = [
 
 const MINI_UPDATE = [
   dt=>{ const m=mini;
-    if(m.life>0){ m.life-=dt; }
-    else { m.spawn-=dt;
-      if(m.spawn<=0){ m.cx=60+m.rng()*(MW-120); m.cy=55+m.rng()*(MGY-115); m.life=m.lifeMax; } } },
+    if(m.life>0){
+      m.life-=dt;
+      if(m.life<=0){ m.life=0; m.spawn=0.3+m.rng()*0.4; }   // にげた→少しまって次のセミ
+    } else {
+      m.spawn-=dt;
+      if(m.spawn<=0){ m.cx=60+m.rng()*(MW-120); m.cy=55+m.rng()*(MGY-115); m.life=m.lifeMax; }
+    } },
   dt=>{ const m=mini;
     m.ax += (m.tx-m.ax)*Math.min(1,dt*10);
     m.sp-=dt;
@@ -1705,9 +1722,18 @@ function drawMini(){
 // ---- メインループ ----
 function loop(ts){
   const dt = Math.min((ts-lastTs)/1000, 0.05); lastTs = ts;
-  update(dt);
-  if(state==='mini'){ updateMini(dt); drawMini(); }
-  else { draw(); }
+  // どこかで1フレームぶんのエラーが起きても、ゲーム全体は止めない
+  try{
+    update(dt);
+    if(state==='mini'){
+      if(!mini){ closeMini(); }          // 万一状態がくずれたらショップへ復帰
+      else { updateMini(dt); drawMini(); }
+    } else {
+      draw();
+    }
+  }catch(err){
+    console.error('frame error:', err);
+  }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(ts=>{ lastTs=ts; loop(ts); });
