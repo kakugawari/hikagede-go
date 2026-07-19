@@ -81,6 +81,36 @@
   #shopList { max-height:44vh; overflow-y:auto; }
   #titleStatus { display:none; background:rgba(255,255,255,.88); border-radius:14px; padding:8px 20px; font-size:14px; color:#334; font-weight:bold; margin-bottom:20px; }
   .miniBtn { margin-top:16px; font-family:inherit; font-size:12px; color:#fff; background:rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.5); border-radius:16px; padding:6px 14px; cursor:pointer; }
+
+  /* ===== 横画面のショップ:ワイドにして3列グリッドでスクロールなし ===== */
+  @media (orientation: landscape){
+    #shopCard { max-width:min(94vw, 920px); max-height:94vh; overflow-y:auto; padding:12px 20px 16px; }
+    #shopCard h2 { font-size:20px; margin-bottom:2px; }
+    #shopCoin { font-size:14px; margin-bottom:2px; display:inline-block; margin-right:14px; }
+    #alienStat { display:inline-block; font-size:12px; margin-bottom:8px; }
+    #alienStat .expOuter { max-width:300px; }
+    #shopList { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; max-height:none; overflow:visible; }
+    .shopItem { margin-bottom:0; padding:7px 9px; gap:8px; }
+    .shopItem .ico { font-size:22px; width:26px; }
+    .shopItem .nm { font-size:12.5px; }
+    .shopItem .dots { letter-spacing:1px; }
+    .shopItem .lv { font-size:10.5px; line-height:1.3; }
+    .buyBtn { padding:6px 9px; font-size:12.5px; }
+    #shopGo { margin-top:10px; padding:10px 44px; font-size:19px; }
+  }
+  /* せまい横画面(小さいスマホ)は2列に */
+  @media (orientation: landscape) and (max-width: 740px){
+    #shopList { grid-template-columns:repeat(2, 1fr); }
+  }
+
+  /* ===== ボーナスミニゲーム ===== */
+  #miniScreen { display:none; background:rgba(10,25,45,.88); z-index:40; }
+  #miniCard { background:#fffdf5; border-radius:20px; border:4px solid #333; padding:10px 14px 12px; width:min(94vw,620px); max-height:94vh; text-align:center; box-shadow:0 8px 0 rgba(0,0,0,.3); }
+  #miniTitle { font-weight:bold; color:#e8722a; font-size:16px; }
+  #miniGoal { font-size:12.5px; color:#555; margin:2px 0 6px; }
+  #miniCv { width:100%; border-radius:12px; border:2px solid #bbb; background:#bfe4ff; touch-action:none; display:block; }
+  #miniInfo { font-size:14px; font-weight:bold; color:#334; margin-top:6px; min-height:20px; }
+  #miniGo { display:none; margin-top:4px; padding:9px 40px; font-size:18px; }
   .shopItem { display:flex; align-items:center; gap:12px; background:#fff7e6; border:2px solid #e8c88a; border-radius:14px; padding:10px 12px; margin-bottom:10px; text-align:left; }
   .shopItem .ico { font-size:30px; width:38px; text-align:center; flex-shrink:0; }
   .shopItem .info { flex:1; min-width:0; }
@@ -134,6 +164,18 @@
     <div id="alienStat"></div>
     <div id="shopList"></div>
     <button class="bigBtn" id="shopGo">つぎのレベルへ ▶</button>
+  </div>
+</div>
+
+<!-- ボーナスミニゲーム画面 -->
+<div class="screen" id="miniScreen">
+  <div id="miniCard">
+    <div id="miniTitle"></div>
+    <div id="miniGoal"></div>
+    <canvas id="miniCv"></canvas>
+    <div id="miniInfo"></div>
+    <button class="bigBtn" id="miniGo">ショップへ ▶</button>
+    <button class="miniBtn" id="miniSkip">スキップしてショップへ</button>
   </div>
 </div>
 
@@ -611,8 +653,8 @@ function showResult(clear, reason){
     tt.textContent=`レベル${level} クリア!!`;
     tt.className='clear';
     dt.innerHTML = `クリアタイム <b>${timeT.toFixed(1)}秒</b><br>コイン <b>🪙${lastReward}</b> ・ けいけんち <b>+${lastExp}</b>`
-      + (lastLvUp ? `<br>🎉 エイリアンが <b>Lv.${alien.lv}</b> になった!<br>「${alienTitle()}」` : `<br>ショップで つよくしよう✨`);
-    document.getElementById('nextBtn').textContent = 'ショップへ 🛒';
+      + (lastLvUp ? `<br>🎉 エイリアンが <b>Lv.${alien.lv}</b> になった!<br>「${alienTitle()}」` : `<br>ボーナスミニゲームに ちょうせん!🎮`);
+    document.getElementById('nextBtn').textContent = 'ミニゲームへ 🎮';
   }else if(reason==='fall'){
     em.textContent='🕳️';
     tt.textContent='おっこちた…';
@@ -1304,11 +1346,361 @@ function drawPlayer(){
   ctx.restore();
 }
 
+/* =========================================================
+   ボーナスミニゲーム(ぜんぶで100種!)
+   6しゅるいの遊び × むずかしさのちがいで No.1〜No.100
+========================================================= */
+const MW=480, MH=250, MGY=208;
+const miniCv = document.getElementById('miniCv');
+const mc = miniCv.getContext('2d');
+{
+  const mdpr = Math.min(window.devicePixelRatio||1, 2);
+  miniCv.width = MW*mdpr; miniCv.height = MH*mdpr;
+  mc.setTransform(mdpr,0,0,mdpr,0,0);
+}
+// タネつきランダム(同じNo.はいつも同じ内容になる)
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+let mini = null;
+const MINI_NAMES = ['セミとり','アイスキャッチ','うちわれんだ','かきごおりけずり','マンホールとび','スイカわり'];
+function miniTierLabel(t){ return t<4?'':t<8?'・ちょいむず':t<12?'・むずかしい':'・ゲキむず'; }
+
+function startMini(){
+  document.getElementById('resultScreen').style.display='none';
+  const no = ((totalClears-1)%100+100)%100 + 1;
+  const type = (no-1)%6, tier = Math.floor((no-1)/6);
+  mini = { no, type, tier, rng:mulberry32(no*7919+17), t:0, timeMax:15, done:false, score:0, goal:1, bonus:0, fx:[] };
+  MINI_SETUP[type]();
+  document.getElementById('miniTitle').textContent = `🎮 ミニゲーム No.${no}「${MINI_NAMES[type]}${miniTierLabel(tier)}」`;
+  document.getElementById('miniGoal').textContent = MINI_GOALTXT[type]();
+  document.getElementById('miniInfo').textContent = '';
+  document.getElementById('miniSkip').style.display='inline-block';
+  document.getElementById('miniGo').style.display='none';
+  document.getElementById('miniScreen').style.display='flex';
+  state='mini';
+}
+function miniFinish(){
+  if(mini.done) return;
+  mini.done = true;
+  const full = mini.score >= mini.goal;
+  mini.bonus = full ? (mini.tier>=8?3:2) : (mini.score >= Math.ceil(mini.goal/2) ? 1 : 0);
+  const info = document.getElementById('miniInfo');
+  info.textContent = full ? `🎉 だいせいこう! ボーナス 🪙+${mini.bonus}`
+    : (mini.bonus ? `おしい! ボーナス 🪙+${mini.bonus}` : 'ざんねん… つぎ がんばろう!');
+  document.getElementById('miniSkip').style.display='none';
+  document.getElementById('miniGo').style.display='inline-block';
+}
+function closeMini(){ document.getElementById('miniScreen').style.display='none'; mini=null; openShop(); }
+document.getElementById('miniSkip').addEventListener('click', closeMini);
+document.getElementById('miniGo').addEventListener('click', ()=>{ coins += mini.bonus; saveData(); closeMini(); });
+miniCv.addEventListener('pointerdown', e=>{
+  e.preventDefault();
+  if(!mini || mini.done) return;
+  const r = miniCv.getBoundingClientRect();
+  const x=(e.clientX-r.left)/r.width*MW, y=(e.clientY-r.top)/r.height*MH;
+  MINI_TAP[mini.type](x,y);
+});
+
+// ---- ミニゲーム共通の描画 ----
+function mSky(c1,c2){ const g=mc.createLinearGradient(0,0,0,MH); g.addColorStop(0,c1); g.addColorStop(1,c2); mc.fillStyle=g; mc.fillRect(0,0,MW,MH); }
+function mGround(col){ mc.fillStyle=col||'#f2d9a0'; mc.fillRect(0,MGY,MW,MH-MGY); mc.fillStyle='rgba(0,0,0,.08)'; mc.fillRect(0,MGY,MW,3); }
+function mFx(x,y,txt,color){ mini.fx.push({x,y,txt,color,t:0}); }
+function drawFxs(){
+  mc.textAlign='center'; mc.font='bold 15px sans-serif';
+  for(const f of mini.fx){ f.t+=1/60; mc.globalAlpha=Math.max(0,1-f.t); mc.fillStyle=f.color; mc.fillText(f.txt, f.x, f.y-f.t*30); }
+  mc.globalAlpha=1; mini.fx = mini.fx.filter(f=>f.t<1);
+}
+function miniHud(){
+  mc.textAlign='left'; mc.font='bold 13px sans-serif'; mc.fillStyle='#334';
+  mc.fillText(`のこり ${Math.max(0,Math.ceil(mini.timeMax-mini.t))}びょう`, 10, 18);
+  mc.textAlign='right';
+  mc.fillText(`${mini.score} / ${mini.goal}`, MW-10, 18);
+}
+// ミニ用のかんたん玉エイリアン
+function mAlien(x,y,s,o={}){
+  mc.save(); mc.translate(x,y); mc.scale(o.flip?-s:s, s);
+  mc.lineJoin='round'; mc.lineCap='round';
+  mc.fillStyle='rgba(0,0,0,.18)'; mc.beginPath(); mc.ellipse(0,3,20,5,0,0,7); mc.fill();
+  const leg=o.leg||0;
+  mc.strokeStyle='#2b2b2b'; mc.lineWidth=3; mc.fillStyle='#fdfbf5';
+  mc.beginPath(); mc.ellipse(-8,-6-Math.max(0,leg)*4,4.5,7,0,0,7); mc.fill(); mc.stroke();
+  mc.beginPath(); mc.ellipse(8,-6-Math.max(0,-leg)*4,4.5,7,0,0,7); mc.fill(); mc.stroke();
+  if(o.armA!==undefined){
+    mc.save(); mc.translate(13,-33); mc.rotate(o.armA);
+    mc.beginPath(); mc.ellipse(8,0,9,4,0,0,7); mc.fill(); mc.stroke();
+    if(o.tool==='fan'){
+      mc.fillStyle='#7ec8e3'; mc.beginPath(); mc.ellipse(24,0,10,14,0,0,7); mc.fill(); mc.stroke();
+      mc.fillStyle='#fdfbf5';
+    }
+    if(o.tool==='stick'){
+      mc.strokeStyle='#8a5a30'; mc.lineWidth=5;
+      mc.beginPath(); mc.moveTo(10,0); mc.lineTo(38,-6); mc.stroke();
+      mc.strokeStyle='#2b2b2b'; mc.lineWidth=3;
+    }
+    mc.restore();
+  }else{
+    mc.beginPath(); mc.ellipse(-22,-30,8,4,-.3,0,7); mc.fill(); mc.stroke();
+    mc.beginPath(); mc.ellipse(22,-29,8,4,.3,0,7); mc.fill(); mc.stroke();
+  }
+  mc.beginPath(); mc.ellipse(0,-26,20,20,0,0,7); mc.fill(); mc.stroke();
+  mc.lineWidth=2.4;
+  mc.beginPath(); mc.ellipse(-5,-32,3,4,0,0,7); mc.stroke();
+  mc.save(); mc.translate(6,-31); mc.rotate(-.5);
+  mc.fillStyle='#2b2b2b'; mc.beginPath(); mc.ellipse(0,0,4.5,1.8,0,0,7); mc.fill(); mc.restore();
+  mc.fillStyle='#fdfbf5';
+  mc.beginPath(); mc.arc(0,-22,4.5,.2,2.9); mc.stroke();
+  if(o.sweat){ mc.fillStyle='#6ec6ff'; mc.beginPath(); mc.arc(15,-40+Math.sin(timeT*6)*2,2.5,0,7); mc.fill(); mc.fillStyle='#fdfbf5'; }
+  mc.restore();
+}
+
+// ---- 6しゅるいのゲーム定義 ----
+const MINI_GOALTXT = [
+  ()=>`セミを ${mini.goal}ひき つかまえよう!(セミをタップ)`,
+  ()=>`アイスを ${mini.goal}こ キャッチ!(タップでいどう・🔥はさけて)`,
+  ()=>`れんだで あおいで 体温を0にしよう!`,
+  ()=>`青いゾーンで ${mini.goal}回 けずろう!(タイミングよくタップ)`,
+  ()=>`マンホールを ${mini.goal}回 とびこえよう!(タップでジャンプ)`,
+  ()=>`ちぢむワッカが 白いワッカにかさなったらタップ! ${mini.goal}回わろう!`,
+];
+
+const MINI_SETUP = [
+  // 0 セミとり
+  ()=>{ const m=mini; m.timeMax=14; m.goal=4+Math.floor(m.tier/4);
+        m.cx=0; m.cy=0; m.life=0; m.spawn=0.5; m.lifeMax=Math.max(0.65,1.4-0.05*m.tier); },
+  // 1 アイスキャッチ
+  ()=>{ const m=mini; m.timeMax=16; m.goal=6+Math.floor(m.tier/3);
+        m.ax=MW/2; m.tx=MW/2; m.items=[]; m.sp=0.4; m.fall=95+9*m.tier; m.bad=0; },
+  // 2 うちわれんだ
+  ()=>{ const m=mini; m.timeMax=10; m.goal=2; m.heat=100; m.refill=9+1.4*m.tier; m.swing=0; m.taps=0; },
+  // 3 かきごおりけずり
+  ()=>{ const m=mini; m.timeMax=15; m.goal=3; m.cur=m.rng(); m.dir=1;
+        m.spd=0.85+0.06*m.tier; m.zw=Math.max(0.09,0.17-0.006*m.tier); m.zc=0.25+m.rng()*0.5; m.crank=0; },
+  // 4 マンホールとび
+  ()=>{ const m=mini; m.timeMax=18; m.goal=5+Math.floor(m.tier/3);
+        m.py=0; m.vy=0; m.obs=[]; m.spd=175+9*m.tier; m.hits=0; m.run=0; m.off=0; },
+  // 5 スイカわり
+  ()=>{ const m=mini; m.timeMax=15; m.goal=2; m.ring=110; m.spd=55+4*m.tier;
+        m.tol=Math.max(5,11-0.4*m.tier); m.target=30; m.smash=0; },
+];
+
+const MINI_TAP = [
+  (x,y)=>{ const m=mini;
+    if(m.life>0 && (x-m.cx)**2+(y-m.cy)**2 < 36*36){
+      m.score++; mFx(m.cx,m.cy,'ゲット!','#2e8a3e'); m.life=0; m.spawn=0.35+m.rng()*0.4;
+      if(m.score>=m.goal) miniFinish();
+    } },
+  (x,y)=>{ mini.tx = x; },
+  ()=>{ const m=mini; m.heat=Math.max(0,m.heat-7); m.swing=1; m.taps++;
+    if(m.heat<=0){ m.score=2; miniFinish(); } },
+  ()=>{ const m=mini;
+    if(Math.abs(m.cur-m.zc) < m.zw/2){
+      m.score++; mFx(MW/2,110,'シャリシャリ!','#4a9fd8'); m.zc=0.15+m.rng()*0.7;
+      if(m.score>=m.goal) miniFinish();
+    } else mFx(MW/2,110,'ミス…','#999'); },
+  ()=>{ const m=mini; if(m.py>=-0.5){ m.vy=-430; } },
+  ()=>{ const m=mini;
+    if(Math.abs(m.ring-m.target) <= m.tol){
+      m.score++; m.smash=0.5; mFx(MW*0.62,MGY-70,'パカーン!','#e05a4a');
+      m.ring=100+m.rng()*30;
+      if(m.score>=m.goal) miniFinish();
+    } else { mFx(MW*0.62,MGY-70,'スカッ','#999'); m.ring=100+m.rng()*30; } },
+];
+
+const MINI_UPDATE = [
+  dt=>{ const m=mini;
+    if(m.life>0){ m.life-=dt; }
+    else { m.spawn-=dt;
+      if(m.spawn<=0){ m.cx=60+m.rng()*(MW-120); m.cy=55+m.rng()*(MGY-115); m.life=m.lifeMax; } } },
+  dt=>{ const m=mini;
+    m.ax += (m.tx-m.ax)*Math.min(1,dt*10);
+    m.sp-=dt;
+    if(m.sp<=0){ m.sp=Math.max(0.45,0.85-0.02*m.tier);
+      m.items.push({x:30+m.rng()*(MW-60), y:-20, bad:m.rng()<(0.22+0.008*m.tier), got:false}); }
+    for(const it of m.items){
+      it.y += m.fall*dt;
+      if(!it.got && it.y>MGY-40 && it.y<MGY-4 && Math.abs(it.x-m.ax)<32){
+        it.got=true;
+        if(it.bad){ m.bad++; mFx(it.x,it.y,'アチチ!','#ff4757'); }
+        else { m.score++; mFx(it.x,it.y,'+1','#1a9bd7'); if(m.score>=m.goal) miniFinish(); }
+      }
+    }
+    m.items = m.items.filter(it=>!it.got && it.y<MH+20);
+    if(m.bad>=3) miniFinish(); },
+  dt=>{ const m=mini;
+    m.heat=Math.min(100,m.heat+m.refill*dt);
+    m.swing=Math.max(0,m.swing-dt*4);
+    if(m.heat>0) m.score = m.heat<45 ? 1 : 0; },
+  dt=>{ const m=mini;
+    m.cur += m.dir*m.spd*dt;
+    if(m.cur>1){m.cur=1;m.dir=-1;} if(m.cur<0){m.cur=0;m.dir=1;}
+    m.crank+=dt*3; },
+  dt=>{ const m=mini;
+    m.vy+=1300*dt; m.py+=m.vy*dt; if(m.py>0){m.py=0;m.vy=0;}
+    m.run+=dt*10; m.off=(m.off+m.spd*dt)%40;
+    if(m.obs.length===0 || m.obs[m.obs.length-1].x < MW-(150+m.rng()*130)) m.obs.push({x:MW+40});
+    for(const ob of m.obs){
+      ob.x -= m.spd*dt;
+      if(!ob.hit && Math.abs(ob.x-90)<24 && m.py>-20){ ob.hit=true; m.hits++; mFx(90,MGY-60,'アチチ!','#ff4757'); }
+      if(!ob.counted && ob.x<58){ ob.counted=true;
+        if(!ob.hit){ m.score++; if(m.score>=m.goal) miniFinish(); } }
+    }
+    m.obs = m.obs.filter(ob=>ob.x>-40);
+    if(m.hits>=3) miniFinish(); },
+  dt=>{ const m=mini;
+    m.ring -= m.spd*dt;
+    if(m.ring < m.target-m.tol-5){ m.ring=100+m.rng()*30; }
+    m.smash=Math.max(0,m.smash-dt); },
+];
+
+const MINI_DRAW = [
+  // 0 セミとり
+  ()=>{ const m=mini;
+    mSky('#8fd3f4','#d8f0c8'); 
+    mc.fillStyle='#9a6238';
+    for(const tx of [90,240,390]){ mc.fillRect(tx-14,30,28,MGY-30); mc.fillStyle='rgba(0,0,0,.15)'; mc.fillRect(tx+4,30,8,MGY-30); mc.fillStyle='#9a6238'; }
+    mGround('#cfe6b0');
+    mAlien(46,MGY,0.9,{});
+    if(m.life>0){
+      const c=m.cx, cy=m.cy;
+      mc.fillStyle='rgba(200,230,255,.7)';
+      mc.beginPath(); mc.ellipse(c-11,cy-2,9,14,.5,0,7); mc.ellipse(c+11,cy-2,9,14,-.5,0,7); mc.fill();
+      mc.fillStyle='#6a5238'; mc.strokeStyle='#3a2a15'; mc.lineWidth=2.5;
+      mc.beginPath(); mc.ellipse(c,cy,9,15,0,0,7); mc.fill(); mc.stroke();
+      mc.fillStyle='#2b2b2b';
+      mc.beginPath(); mc.arc(c-4,cy-11,2,0,7); mc.arc(c+4,cy-11,2,0,7); mc.fill();
+      mc.fillStyle='#334'; mc.font='bold 11px sans-serif'; mc.textAlign='center';
+      if(Math.floor(timeT*4)%2===0) mc.fillText('ミンミン♪', c, cy-24);
+    } },
+  // 1 アイスキャッチ
+  ()=>{ const m=mini;
+    mSky('#7ec8ea','#fdf3cf'); mGround();
+    for(const it of m.items){
+      if(it.bad){
+        mc.fillStyle='#ff8c42'; mc.strokeStyle='#c74a1a'; mc.lineWidth=2.5;
+        mc.beginPath(); mc.arc(it.x,it.y,11,0,7); mc.fill(); mc.stroke();
+        mc.strokeStyle='rgba(255,120,60,.8)';
+        mc.beginPath(); mc.moveTo(it.x,it.y-11); mc.quadraticCurveTo(it.x+5,it.y-20,it.x,it.y-26); mc.stroke();
+      }else{
+        mc.fillStyle='#eab86e'; mc.strokeStyle='#a3763d'; mc.lineWidth=2;
+        mc.beginPath(); mc.moveTo(it.x-8,it.y); mc.lineTo(it.x+8,it.y); mc.lineTo(it.x,it.y+16); mc.closePath(); mc.fill(); mc.stroke();
+        mc.fillStyle='#fffaf2'; mc.strokeStyle='#d8b8a0';
+        mc.beginPath(); mc.arc(it.x,it.y-6,9,0,7); mc.fill(); mc.stroke();
+      }
+    }
+    mAlien(m.ax, MGY, 1, {sweat:m.bad>0});
+    mc.fillStyle='#334'; mc.font='bold 11px sans-serif'; mc.textAlign='center';
+    mc.fillText(`🔥にあたると ダメ(あと${3-m.bad}回)`, MW/2, MH-8); },
+  // 2 うちわれんだ
+  ()=>{ const m=mini;
+    mSky('#ffd98a','#fdf3cf'); mGround();
+    // 温度計
+    const bx=MW-70, bh=150, by=40;
+    mc.fillStyle='#fff'; mc.strokeStyle='#333'; mc.lineWidth=3;
+    mc.fillRect(bx,by,26,bh); mc.strokeRect(bx,by,26,bh);
+    const hh=bh*m.heat/100;
+    mc.fillStyle= m.heat>60?'#ff4757': m.heat>30?'#ffd93d':'#5ec8e8';
+    mc.fillRect(bx+3, by+bh-hh+3, 20, Math.max(0,hh-6));
+    mAlien(MW/2-30, MGY, 1.2, {sweat:m.heat>50, armA:-0.7+m.swing*1.3, tool:'fan'});
+    if(m.swing>0.3){
+      mc.strokeStyle='rgba(160,220,255,.8)'; mc.lineWidth=3;
+      for(let i=0;i<3;i++){
+        mc.beginPath(); mc.moveTo(MW/2+20, MGY-60+i*14);
+        mc.quadraticCurveTo(MW/2+50, MGY-64+i*14, MW/2+74, MGY-56+i*14); mc.stroke();
+      }
+    }
+    mc.fillStyle='#e8722a'; mc.font='bold 15px sans-serif'; mc.textAlign='center';
+    mc.fillText(`れんだ x${m.taps}`, MW/2, 40); },
+  // 3 かきごおりけずり
+  ()=>{ const m=mini;
+    mSky('#8fd3f4','#fdf3cf'); mGround();
+    // かき氷きかい
+    const kx=MW/2+50;
+    mc.fillStyle='#dde6ee'; mc.strokeStyle='#334'; mc.lineWidth=3;
+    mc.fillRect(kx-24, MGY-120, 48, 60); mc.strokeRect(kx-24, MGY-120, 48, 60);
+    mc.save(); mc.translate(kx+30, MGY-104); mc.rotate(Math.sin(m.crank)*0.8);
+    mc.strokeStyle='#556'; mc.lineWidth=5;
+    mc.beginPath(); mc.moveTo(0,0); mc.lineTo(18,-12); mc.stroke();
+    mc.fillStyle='#e05a4a'; mc.beginPath(); mc.arc(18,-12,6,0,7); mc.fill();
+    mc.restore();
+    // カップと氷のやま
+    mc.fillStyle='#fff'; mc.strokeStyle='#9fc4d8'; mc.lineWidth=2.5;
+    mc.beginPath(); mc.moveTo(kx-18,MGY-30); mc.lineTo(kx+18,MGY-30); mc.lineTo(kx+13,MGY); mc.lineTo(kx-13,MGY); mc.closePath(); mc.fill(); mc.stroke();
+    for(let i=0;i<m.score;i++){
+      mc.fillStyle='#fdfdff'; mc.strokeStyle='#bcd8e8';
+      mc.beginPath(); mc.arc(kx, MGY-34-i*10, 16-i*2, 3.14, 0); mc.fill(); mc.stroke();
+    }
+    mAlien(kx-70, MGY, 1, {armA:Math.sin(m.crank)*0.5-0.3});
+    // タイミングバー
+    const tx0=60, tx1=MW-60, ty=MH-22;
+    mc.fillStyle='#eee'; mc.strokeStyle='#999'; mc.lineWidth=2;
+    mc.fillRect(tx0,ty-8,tx1-tx0,16); mc.strokeRect(tx0,ty-8,tx1-tx0,16);
+    const zx=tx0+(tx1-tx0)*(m.zc-m.zw/2);
+    mc.fillStyle='rgba(74,159,216,.7)';
+    mc.fillRect(zx,ty-8,(tx1-tx0)*m.zw,16);
+    const cx2=tx0+(tx1-tx0)*m.cur;
+    mc.fillStyle='#e8722a';
+    mc.beginPath(); mc.moveTo(cx2,ty-14); mc.lineTo(cx2-7,ty-24); mc.lineTo(cx2+7,ty-24); mc.closePath(); mc.fill(); },
+  // 4 マンホールとび
+  ()=>{ const m=mini;
+    mSky('#7ec8ea','#fdf3cf'); mGround();
+    mc.strokeStyle='rgba(150,140,120,.5)'; mc.lineWidth=2;
+    for(let gx=-m.off; gx<MW+40; gx+=40){ mc.beginPath(); mc.moveTo(gx,MGY); mc.lineTo(gx,MH); mc.stroke(); }
+    for(const ob of m.obs){
+      mc.fillStyle='#a05530'; mc.strokeStyle='#4a2210'; mc.lineWidth=2.5;
+      mc.beginPath(); mc.ellipse(ob.x, MGY+4, 22, 7, 0, 0, 7); mc.fill(); mc.stroke();
+      mc.strokeStyle='rgba(255,140,70,.7)';
+      mc.beginPath();
+      for(let yy=0;yy<26;yy+=4){
+        const wx=ob.x+Math.sin(timeT*6+yy*0.3)*4;
+        yy===0?mc.moveTo(wx,MGY-yy):mc.lineTo(wx,MGY-yy);
+      }
+      mc.stroke();
+    }
+    mAlien(90, MGY+m.py, 1, {leg:Math.sin(m.run), sweat:m.hits>0});
+    mc.fillStyle='#334'; mc.font='bold 11px sans-serif'; mc.textAlign='center';
+    mc.fillText(`ふんだらダメ(あと${3-m.hits}回)`, MW/2, MH-8); },
+  // 5 スイカわり
+  ()=>{ const m=mini;
+    mSky('#7ec8ea','#ffe9b8'); mGround('#f5deb0');
+    const wx=MW*0.62, wy=MGY-14;
+    // スイカ
+    mc.fillStyle='#3f9e4f'; mc.strokeStyle='#1e5e2e'; mc.lineWidth=3;
+    mc.beginPath(); mc.ellipse(wx,wy,30,22,0,0,7); mc.fill(); mc.stroke();
+    mc.strokeStyle='#1e5e2e'; mc.lineWidth=4;
+    for(const k of [-14,0,14]){ mc.beginPath(); mc.moveTo(wx+k,wy-21); mc.quadraticCurveTo(wx+k*1.3,wy,wx+k,wy+21); mc.stroke(); }
+    if(m.score>0){
+      mc.fillStyle='#ff6b6b'; mc.strokeStyle='#c0392b'; mc.lineWidth=2;
+      mc.beginPath(); mc.moveTo(wx-12,wy-20); mc.lineTo(wx+4,wy-2); mc.lineTo(wx-6,wy+16); mc.stroke();
+    }
+    // 白いターゲットワッカ と ちぢむワッカ
+    mc.strokeStyle='rgba(255,255,255,.95)'; mc.lineWidth=3;
+    mc.beginPath(); mc.arc(wx,wy,m.target,0,7); mc.stroke();
+    mc.strokeStyle='#e05a4a'; mc.lineWidth=4;
+    mc.beginPath(); mc.arc(wx,wy,Math.max(8,m.ring),0,7); mc.stroke();
+    mAlien(wx-110, MGY, 1.05, {armA:-1.0+m.smash*2.4, tool:'stick'}); },
+];
+
+function updateMini(dt){
+  if(!mini) return;
+  if(!mini.done){
+    mini.t += dt;
+    MINI_UPDATE[mini.type](dt);
+    if(mini.t >= mini.timeMax) miniFinish();
+  }
+}
+function drawMini(){
+  if(!mini) return;
+  MINI_DRAW[mini.type]();
+  drawFxs();
+  if(!mini.done) miniHud();
+}
+
 // ---- メインループ ----
 function loop(ts){
   const dt = Math.min((ts-lastTs)/1000, 0.05); lastTs = ts;
   update(dt);
-  draw();
+  if(state==='mini'){ updateMini(dt); drawMini(); }
+  else { draw(); }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(ts=>{ lastTs=ts; loop(ts); });
@@ -1398,8 +1790,8 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   startGame();
 });
 document.getElementById('retryBtn').addEventListener('click', startGame);
-// クリア結果の「ショップへ」→ ショップを開く
-document.getElementById('nextBtn').addEventListener('click', openShop);
+// クリア結果の「ミニゲームへ」→ ボーナスミニゲームを開始
+document.getElementById('nextBtn').addEventListener('click', startMini);
 // ショップの「つぎのレベルへ」→ レベルアップして開始
 document.getElementById('shopGo').addEventListener('click', ()=>{ level++; saveData(); startGame(); });
 
