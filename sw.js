@@ -1,7 +1,7 @@
 /* ひかげでゴー! Service Worker
    オフラインでも遊べるように、必要なファイルをキャッシュします。
    ゲームを更新したら CACHE の数字(v1→v2…)を上げてください。 */
-const CACHE = 'hikage-de-go-v5';
+const CACHE = 'hikage-de-go-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -10,7 +10,9 @@ const ASSETS = [
   './apple-touch-icon.png',
   './icon-192.png',
   './icon-512.png',
-  './icon-maskable-512.png'
+  './icon-maskable-512.png',
+  './title-alien-left.png',
+  './title-alien-right.png'
 ];
 
 // インストール時に一式をキャッシュ
